@@ -421,10 +421,26 @@ def perform_speaker_diarization(audio_path, speaker_names=None, debug=False):
         hf_token = os.environ.get('HF_TOKEN') or os.environ.get('HUGGING_FACE_TOKEN')
         
         # Load diarization pipeline (using community-1 model - recommended open-source model)
-        pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-community-1",
-            use_auth_token=hf_token
-        )
+        # Handle API compatibility: pyannote.audio v3.1+ uses 'token', older versions use 'use_auth_token'
+        try:
+            # Try new API first (pyannote.audio v3.1+)
+            pipeline = Pipeline.from_pretrained(
+                "pyannote/speaker-diarization-community-1",
+                token=hf_token
+            )
+            if debug:
+                logger.debug("Loaded diarization pipeline using new API (token parameter)")
+        except TypeError as e:
+            if "use_auth_token" in str(e) or "unexpected keyword argument" in str(e):
+                # Fall back to old API (pyannote.audio v3.0 and earlier)
+                pipeline = Pipeline.from_pretrained(
+                    "pyannote/speaker-diarization-community-1",
+                    use_auth_token=hf_token
+                )
+                if debug:
+                    logger.debug("Loaded diarization pipeline using old API (use_auth_token parameter)")
+            else:
+                raise
         
         if debug:
             logger.debug(f"Model loaded in {time.time() - start_time:.2f}s")

@@ -62,12 +62,19 @@ pipeline = Pipeline.from_pretrained(
     use_auth_token=hf_token
 )
 
-# After:
+# After (with API version compatibility):
 # Load diarization pipeline (using community-1 model - recommended open-source model)
-pipeline = Pipeline.from_pretrained(
-    "pyannote/speaker-diarization-community-1",
-    use_auth_token=hf_token
-)
+# Handle API compatibility: pyannote.audio v3.1+ uses 'token', older versions use 'use_auth_token'
+try:
+    pipeline = Pipeline.from_pretrained(
+        "pyannote/speaker-diarization-community-1",
+        token=hf_token  # New API (v3.1+)
+    )
+except TypeError:
+    pipeline = Pipeline.from_pretrained(
+        "pyannote/speaker-diarization-community-1",
+        use_auth_token=hf_token  # Old API (v3.0 and earlier)
+    )
 ```
 
 ---
