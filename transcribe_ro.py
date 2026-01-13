@@ -123,7 +123,7 @@ except ImportError:
 try:
     from pyannote.audio import Pipeline
     DIARIZATION_AVAILABLE = True
-    logger.info("Speaker diarization (pyannote.audio) loaded successfully")
+    logger.info("Speaker diarization (pyannote.audio community-1 model) loaded successfully")
 except ImportError:
     logger.warning("pyannote.audio not installed. Speaker diarization will not be available.")
     logger.warning("Install with: pip install pyannote.audio")
@@ -380,7 +380,7 @@ def perform_speaker_diarization(audio_path, speaker_names=None, debug=False):
     try:
         logger.info("Performing speaker diarization...")
         logger.info("Note: This requires a HuggingFace token for pyannote.audio models")
-        logger.info("Set HF_TOKEN environment variable or accept terms at: https://huggingface.co/pyannote/speaker-diarization")
+        logger.info("Set HF_TOKEN environment variable or accept terms at: https://huggingface.co/pyannote/speaker-diarization-community-1")
         
         # Try to get HuggingFace token from environment
         hf_token = os.environ.get('HF_TOKEN') or os.environ.get('HUGGING_FACE_TOKEN')
@@ -390,9 +390,9 @@ def perform_speaker_diarization(audio_path, speaker_names=None, debug=False):
             logger.error("Get your token at: https://huggingface.co/settings/tokens")
             return None
         
-        # Load diarization pipeline
+        # Load diarization pipeline (using community-1 model - recommended open-source model)
         pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1",
+            "pyannote/speaker-diarization-community-1",
             use_auth_token=hf_token
         )
         

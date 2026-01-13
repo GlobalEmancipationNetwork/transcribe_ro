@@ -236,12 +236,12 @@ python transcribe_ro.py --directory ./recordings --model medium
 
 ### 🎤 Speaker Diarization
 
-Identify and label different speakers in your recordings! This feature requires the `pyannote.audio` library and a HuggingFace token.
+Identify and label different speakers in your recordings! This feature uses the `pyannote.audio` library with the recommended open-source `community-1` model and requires a HuggingFace token.
 
 **Setup**:
 1. Install pyannote.audio: `pip install pyannote.audio`
 2. Get a HuggingFace token at https://huggingface.co/settings/tokens
-3. Accept terms at https://huggingface.co/pyannote/speaker-diarization
+3. Accept terms at https://huggingface.co/pyannote/speaker-diarization-community-1
 4. Set environment variable: `export HF_TOKEN=your_token_here`
 
 **Example**:
@@ -266,6 +266,8 @@ python transcribe_ro.py --directory ./interviews --speakers "Interviewer,Intervi
 - Distinct speaker voices
 - Two speakers (as specified)
 - Good audio quality without background noise
+
+**Model**: Uses the `community-1` open-source model from pyannote.audio, which provides state-of-the-art speaker diarization with improved accuracy over previous versions. This model runs entirely locally on your machine for complete privacy.
 
 ### Command-Line Options
 

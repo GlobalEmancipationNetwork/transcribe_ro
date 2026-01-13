@@ -24,6 +24,7 @@ ffmpeg-python>=0.2.0
 numpy>=1.24.0
 
 # Speaker diarization (optional - for --speakers feature)
-# Requires HuggingFace token: https://huggingface.co/pyannote/speaker-diarization
+# Uses the recommended community-1 open-source model
+# Requires HuggingFace token: https://huggingface.co/pyannote/speaker-diarization-community-1
 # Install with: pip install pyannote.audio
-# pyannote.audio>=3.1.0
+# pyannote.audio>=4.0.0
