@@ -447,8 +447,22 @@ def perform_speaker_diarization(audio_path, speaker_names=None, debug=False):
             logger.debug("Running diarization pipeline...")
             start_time = time.time()
         
+        # Pre-load audio using torchaudio to avoid torchcodec/AudioDecoder issues in pyannote.audio 4.x
+        # The pipeline accepts a dictionary with "waveform" and "sample_rate" keys
+        try:
+            import torchaudio
+            waveform, sample_rate = torchaudio.load(audio_path)
+            audio_input = {"waveform": waveform, "sample_rate": sample_rate}
+            if debug:
+                logger.debug(f"Audio loaded via torchaudio: {waveform.shape}, {sample_rate}Hz")
+        except Exception as audio_load_err:
+            # Fallback to direct path (older pyannote versions)
+            if debug:
+                logger.debug(f"torchaudio load failed ({audio_load_err}), using direct path")
+            audio_input = audio_path
+        
         # Run diarization
-        diarization = pipeline(audio_path)
+        diarization = pipeline(audio_input)
         
         if debug:
             logger.debug(f"Diarization completed in {time.time() - start_time:.2f}s")
