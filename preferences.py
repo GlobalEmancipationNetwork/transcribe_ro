@@ -202,8 +202,9 @@ class PreferencesDialog:
     - Helpful tooltips and links
     """
     
-    # HuggingFace token page URL
+    # HuggingFace URLs
     HF_TOKEN_URL = "https://huggingface.co/settings/tokens"
+    PYANNOTE_MODEL_URL = "https://huggingface.co/pyannote/speaker-diarization-3.1"
     
     def __init__(self, parent: tk.Tk, settings_manager: SettingsManager, 
                  on_settings_saved: callable = None):
@@ -348,16 +349,32 @@ class PreferencesDialog:
             "Pentru recunoașterea vorbitorilor / For speaker recognition:\n\n"
             "1. Creați un cont la huggingface.co (gratuit)\n"
             "   Create an account at huggingface.co (free)\n\n"
-            "2. Accesați https://huggingface.co/settings/tokens\n"
-            "   Visit https://huggingface.co/settings/tokens\n\n"
-            "3. Creați un token nou (Read) și copiați-l aici\n"
-            "   Create a new token (Read) and paste it here\n\n"
-            "4. Acceptați termenii modelelor pyannote (link pe HF)\n"
-            "   Accept pyannote model terms (link on HF)"
+            "2. Accesați setările token și creați un token nou (Read)\n"
+            "   Visit token settings and create a new token (Read)\n\n"
+            "3. IMPORTANT: Acceptați termenii modelului pyannote!\n"
+            "   IMPORTANT: Accept the pyannote model terms!"
         )
         
         ttk.Label(instructions_section, text=instructions, font=("Helvetica", 9),
-                  justify=tk.LEFT).pack(anchor=tk.W)
+                  justify=tk.LEFT).pack(anchor=tk.W, pady=(0, 10))
+        
+        # Quick links row
+        links_frame = ttk.Frame(instructions_section)
+        links_frame.pack(fill=tk.X, pady=(5, 0))
+        
+        ttk.Button(links_frame, text="🔗 Token Settings",
+                   command=self._open_hf_token_page, width=16).pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Button(links_frame, text="📄 Accept Model Terms",
+                   command=self._open_pyannote_model_page, width=18).pack(side=tk.LEFT)
+        
+        # Warning note about model terms
+        warning_frame = ttk.Frame(instructions_section)
+        warning_frame.pack(fill=tk.X, pady=(10, 0))
+        ttk.Label(warning_frame, 
+                  text="⚠️ Dacă token-ul e valid dar diarizarea eșuează, acceptați termenii modelului!\n"
+                       "    If token is valid but diarization fails, accept the model terms!",
+                  font=("Helvetica", 9), foreground="orange").pack(anchor=tk.W)
     
     def _create_defaults_tab(self):
         """Create the Defaults settings tab."""
@@ -492,54 +509,93 @@ class PreferencesDialog:
         Returns:
             Tuple of (is_valid, message)
         """
+        # First, validate token format
+        token = token.strip()
+        
+        if not token:
+            return False, "Token gol / Empty token"
+        
+        # Check for common token formats (hf_xxx or api_xxx for old format)
+        if not (token.startswith('hf_') or token.startswith('api_') or len(token) >= 20):
+            return False, ("Format token invalid. Token-ul trebuie să înceapă cu 'hf_'.\n"
+                          "Invalid token format. Token should start with 'hf_'.")
+        
         try:
             import requests
             
-            # Test token by making a simple API call
+            # Test token by making a simple API call to whoami endpoint
             headers = {"Authorization": f"Bearer {token}"}
             response = requests.get(
                 "https://huggingface.co/api/whoami",
                 headers=headers,
-                timeout=10
+                timeout=15
             )
             
             if response.status_code == 200:
                 user_info = response.json()
-                username = user_info.get('name', 'Unknown')
+                username = user_info.get('name', user_info.get('fullname', 'Unknown'))
                 return True, f"Token valid! User: {username}"
             elif response.status_code == 401:
-                return False, "Token invalid sau expirat / Invalid or expired token"
+                return False, ("Token invalid sau expirat.\n"
+                              "Invalid or expired token.\n\n"
+                              "Verificați că ați copiat token-ul complet.\n"
+                              "Make sure you copied the full token.")
+            elif response.status_code == 403:
+                return False, ("Acces interzis. Token-ul nu are permisiunile necesare.\n"
+                              "Access forbidden. Token lacks required permissions.")
             else:
-                return False, f"Eroare API (API Error): {response.status_code}"
+                return False, f"Eroare API (API Error): HTTP {response.status_code}"
                 
         except ImportError:
             # requests not available, try urllib
             try:
                 from urllib.request import Request, urlopen
                 from urllib.error import URLError, HTTPError
+                import ssl
                 
                 req = Request(
                     "https://huggingface.co/api/whoami",
                     headers={"Authorization": f"Bearer {token}"}
                 )
                 
-                with urlopen(req, timeout=10) as response:
+                # Create SSL context
+                context = ssl.create_default_context()
+                
+                with urlopen(req, timeout=15, context=context) as response:
                     if response.status == 200:
                         import json
                         data = json.loads(response.read().decode())
-                        username = data.get('name', 'Unknown')
+                        username = data.get('name', data.get('fullname', 'Unknown'))
                         return True, f"Token valid! User: {username}"
-                    return False, f"Eroare (Error): {response.status}"
+                    return False, f"Eroare (Error): HTTP {response.status}"
                     
             except HTTPError as e:
                 if e.code == 401:
-                    return False, "Token invalid sau expirat / Invalid or expired token"
+                    return False, ("Token invalid sau expirat.\n"
+                                  "Invalid or expired token.\n\n"
+                                  "Verificați că ați copiat token-ul complet.\n"
+                                  "Make sure you copied the full token.")
+                elif e.code == 403:
+                    return False, ("Acces interzis. Token-ul nu are permisiunile necesare.\n"
+                                  "Access forbidden. Token lacks required permissions.")
                 return False, f"Eroare HTTP (HTTP Error): {e.code}"
             except URLError as e:
-                return False, f"Eroare conexiune (Connection error): {str(e)}"
+                reason = str(e.reason) if hasattr(e, 'reason') else str(e)
+                return False, (f"Eroare conexiune / Connection error:\n{reason}\n\n"
+                              "Verificați conexiunea la internet.\n"
+                              "Check your internet connection.")
             except Exception as e:
                 return False, f"Eroare (Error): {str(e)}"
-                
+        
+        except requests.exceptions.Timeout:
+            return False, ("Timeout - serverul nu răspunde.\n"
+                          "Timeout - server not responding.\n\n"
+                          "Încercați din nou mai târziu.\n"
+                          "Try again later.")
+        except requests.exceptions.ConnectionError:
+            return False, ("Eroare conexiune / Connection error.\n\n"
+                          "Verificați conexiunea la internet.\n"
+                          "Check your internet connection.")
         except Exception as e:
             return False, f"Eroare la verificare (Verification error): {str(e)}"
     
@@ -547,10 +603,23 @@ class PreferencesDialog:
         """Show the token test result."""
         if is_valid:
             self.token_status_label.config(text=f"✓ {message}", foreground="green")
-            messagebox.showinfo("Test Token", f"✓ {message}")
+            messagebox.showinfo("Test Token", 
+                               f"✓ {message}\n\n"
+                               "Token-ul este valid!\n"
+                               "The token is valid!\n\n"
+                               "Notă: Asigurați-vă că ați acceptat termenii modelului pyannote.\n"
+                               "Note: Make sure you've accepted the pyannote model terms.")
         else:
-            self.token_status_label.config(text=f"✗ {message}", foreground="red")
-            messagebox.showerror("Test Token", f"✗ {message}")
+            self.token_status_label.config(text="✗ Test eșuat / Test failed", foreground="red")
+            # Show error with additional help
+            help_text = ("\n\n--- Ajutor / Help ---\n"
+                        "• Verificați că token-ul este copiat complet\n"
+                        "  Check that the token is fully copied\n"
+                        "• Asigurați-vă că token-ul are permisiuni 'Read'\n"
+                        "  Make sure the token has 'Read' permissions\n"
+                        "• Puteți salva token-ul oricum și va fi verificat la utilizare\n"
+                        "  You can save the token anyway and it will be verified when used")
+            messagebox.showerror("Test Token", f"✗ {message}{help_text}")
     
     def _open_hf_token_page(self):
         """Open HuggingFace token page in browser."""
@@ -560,10 +629,28 @@ class PreferencesDialog:
             messagebox.showerror("Error", 
                                 f"Nu s-a putut deschide browserul.\nCould not open browser.\n\n{e}")
     
+    def _open_pyannote_model_page(self):
+        """Open pyannote model page in browser to accept terms."""
+        try:
+            webbrowser.open(self.PYANNOTE_MODEL_URL)
+        except Exception as e:
+            messagebox.showerror("Error", 
+                                f"Nu s-a putut deschide browserul.\nCould not open browser.\n\n{e}")
+    
     def _on_save(self):
         """Handle save button click."""
+        # Clean and validate token format (but don't require API validation)
+        token = self.hf_token_var.get().strip()
+        
+        # Basic format check (warning only, not blocking)
+        token_warning = ""
+        if token and not (token.startswith('hf_') or token.startswith('api_')):
+            token_warning = ("\n\n⚠️ Token-ul nu pare să aibă formatul corect (hf_...).\n"
+                            "   Token doesn't seem to have the correct format (hf_...).\n"
+                            "   Va fi salvat oricum / Will be saved anyway.")
+        
         # Save all settings
-        self.settings_manager.set("general", "hf_token", self.hf_token_var.get().strip())
+        self.settings_manager.set("general", "hf_token", token)
         self.settings_manager.set("general", "auto_load_token", self.auto_load_token_var.get())
         self.settings_manager.set("transcription", "default_model_size", self.default_model_var.get())
         self.settings_manager.set("transcription", "default_device", self.default_device_var.get())
@@ -572,12 +659,19 @@ class PreferencesDialog:
         # Save to file
         if self.settings_manager.save_settings():
             # Apply HF token to environment if set
-            if self.hf_token_var.get().strip():
+            if token:
                 self.settings_manager.apply_hf_token_to_env()
             
-            messagebox.showinfo("Salvat / Saved",
-                               "Setările au fost salvate cu succes!\n"
-                               "Settings saved successfully!")
+            success_msg = ("Setările au fost salvate cu succes!\n"
+                          "Settings saved successfully!")
+            
+            if token:
+                success_msg += ("\n\nToken-ul va fi verificat când folosiți recunoașterea vorbitorilor.\n"
+                               "The token will be verified when you use speaker recognition.")
+            
+            success_msg += token_warning
+            
+            messagebox.showinfo("Salvat / Saved", success_msg)
             
             # Call callback if provided
             if self.on_settings_saved:
