@@ -327,6 +327,47 @@ Just follow the standard installation in README.md - everything is already updat
 
 ---
 
+## 🔧 Troubleshooting: torchcodec/AudioDecoder Errors
+
+### The Problem
+If you encounter an error like:
+```
+Speaker diarization failed: name 'AudioDecoder' is not defined
+```
+
+This is a compatibility issue between `pyannote.audio 4.x` and `torchcodec`. When both packages are installed, pyannote.audio tries to use torchcodec's AudioDecoder, but the versions are incompatible.
+
+### The Solution
+
+**Option 1: Uninstall torchcodec (Recommended)**
+```bash
+pip uninstall torchcodec
+```
+Then restart the application. pyannote.audio will use torchaudio instead.
+
+**Option 2: Use specific compatible versions**
+```bash
+pip install torchcodec==0.2.1  # If you need torchcodec for other purposes
+```
+
+### Technical Details
+- pyannote.audio 4.x added optional support for torchcodec as an audio decoder
+- When torchcodec is installed but has incompatible versions, it causes a NameError
+- Our code now:
+  1. Sets environment variables to prefer torchaudio backend
+  2. Catches AudioDecoder errors at import time and pipeline creation
+  3. Provides clear error messages with fix instructions
+  4. Pre-loads audio via torchaudio to bypass torchcodec entirely
+
+### What the Fix Does
+1. **Environment variables**: Sets `PYANNOTE_AUDIO_USE_TORCHAUDIO=1` before imports
+2. **Import error handling**: Catches NameError during pyannote.audio import
+3. **Runtime error handling**: Catches AudioDecoder errors during pipeline creation
+4. **Clear error messages**: Tells users exactly how to fix the issue
+5. **Audio pre-loading**: Uses torchaudio.load() to bypass internal torchcodec usage
+
+---
+
 **Date:** January 13, 2026  
 **Upgraded by:** DeepAgent  
-**Version:** 1.2.1
+**Version:** 1.2.2 (AudioDecoder fix)

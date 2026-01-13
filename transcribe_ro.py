@@ -25,6 +25,11 @@ import glob
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
 os.environ['PYTORCH_MPS_HIGH_WATERMARK_RATIO'] = '0.0'
 
+# IMPORTANT: Set environment variables to bypass torchcodec/AudioDecoder issues in pyannote.audio 4.x
+# These must be set BEFORE importing pyannote.audio
+os.environ['PYANNOTE_AUDIO_USE_TORCHAUDIO'] = '1'
+os.environ['PYANNOTE_USE_TORCHAUDIO'] = '1'
+
 # Global debug flag
 DEBUG_MODE = False
 
@@ -120,13 +125,40 @@ except ImportError:
     torch = None
 
 # Try to import speaker diarization dependencies
+DIARIZATION_IMPORT_ERROR = None
 try:
     from pyannote.audio import Pipeline
     DIARIZATION_AVAILABLE = True
     logger.info("Speaker diarization (pyannote.audio community-1 model) loaded successfully")
-except ImportError:
+except ImportError as e:
     logger.warning("pyannote.audio not installed. Speaker diarization will not be available.")
     logger.warning("Install with: pip install pyannote.audio")
+    DIARIZATION_AVAILABLE = False
+    DIARIZATION_IMPORT_ERROR = str(e)
+    Pipeline = None
+except NameError as e:
+    # Handle AudioDecoder not defined error from torchcodec incompatibility
+    error_str = str(e)
+    if 'AudioDecoder' in error_str:
+        logger.warning("pyannote.audio has torchcodec compatibility issues.")
+        logger.warning("Speaker diarization import failed due to AudioDecoder error.")
+        logger.warning("FIX: Run 'pip uninstall torchcodec' to resolve this issue.")
+        DIARIZATION_IMPORT_ERROR = f"AudioDecoder compatibility: {error_str}"
+    else:
+        logger.warning(f"pyannote.audio import failed: {e}")
+        DIARIZATION_IMPORT_ERROR = error_str
+    DIARIZATION_AVAILABLE = False
+    Pipeline = None
+except Exception as e:
+    # Catch any other import errors
+    error_str = str(e)
+    if 'AudioDecoder' in error_str:
+        logger.warning("pyannote.audio has torchcodec compatibility issues.")
+        logger.warning("FIX: Run 'pip uninstall torchcodec' to resolve this issue.")
+        DIARIZATION_IMPORT_ERROR = f"AudioDecoder compatibility: {error_str}"
+    else:
+        logger.warning(f"pyannote.audio import error: {e}")
+        DIARIZATION_IMPORT_ERROR = error_str
     DIARIZATION_AVAILABLE = False
     Pipeline = None
 
@@ -371,6 +403,11 @@ def check_diarization_requirements():
             - error_message: None if available, otherwise descriptive error string
     """
     if not DIARIZATION_AVAILABLE:
+        if DIARIZATION_IMPORT_ERROR and 'AudioDecoder' in DIARIZATION_IMPORT_ERROR:
+            return False, ("torchcodec/AudioDecoder compatibility issue detected. "
+                          "FIX: Run 'pip uninstall torchcodec' then restart the application.")
+        elif DIARIZATION_IMPORT_ERROR:
+            return False, f"pyannote.audio import error: {DIARIZATION_IMPORT_ERROR}"
         return False, "pyannote.audio not installed. Install with: pip install pyannote.audio"
     
     hf_token = os.environ.get('HF_TOKEN') or os.environ.get('HUGGING_FACE_TOKEN')
@@ -422,6 +459,7 @@ def perform_speaker_diarization(audio_path, speaker_names=None, debug=False):
         
         # Load diarization pipeline (using community-1 model - recommended open-source model)
         # Handle API compatibility: pyannote.audio v3.1+ uses 'token', older versions use 'use_auth_token'
+        pipeline = None
         try:
             # Try new API first (pyannote.audio v3.1+)
             pipeline = Pipeline.from_pretrained(
@@ -441,6 +479,16 @@ def perform_speaker_diarization(audio_path, speaker_names=None, debug=False):
                     logger.debug("Loaded diarization pipeline using old API (use_auth_token parameter)")
             else:
                 raise
+        except NameError as e:
+            # Handle AudioDecoder not defined error from torchcodec incompatibility
+            error_str = str(e)
+            if 'AudioDecoder' in error_str:
+                error_msg = ("Speaker diarization failed due to torchcodec/AudioDecoder incompatibility.\n"
+                           "FIX: Run 'pip uninstall torchcodec' in your terminal, then restart the application.\n"
+                           "This is a known issue with pyannote.audio 4.x and torchcodec.")
+                logger.error(error_msg)
+                return None, error_msg
+            raise
         
         if debug:
             logger.debug(f"Model loaded in {time.time() - start_time:.2f}s")
@@ -503,8 +551,28 @@ def perform_speaker_diarization(audio_path, speaker_names=None, debug=False):
         
         return speaker_timeline, status_msg
         
+    except NameError as e:
+        # Handle AudioDecoder not defined error from torchcodec incompatibility
+        error_str = str(e)
+        if 'AudioDecoder' in error_str:
+            error_msg = ("Speaker diarization failed: torchcodec/AudioDecoder incompatibility.\n"
+                        "FIX: Run 'pip uninstall torchcodec' then restart the application.")
+        else:
+            error_msg = f"Speaker diarization failed: {error_str}"
+        logger.error(error_msg)
+        if debug:
+            import traceback
+            logger.debug("Full traceback:")
+            logger.debug(traceback.format_exc())
+        return None, error_msg
     except Exception as e:
-        error_msg = f"Speaker diarization failed: {str(e)}"
+        error_str = str(e)
+        # Check for AudioDecoder error in the exception message
+        if 'AudioDecoder' in error_str:
+            error_msg = ("Speaker diarization failed: torchcodec/AudioDecoder incompatibility.\n"
+                        "FIX: Run 'pip uninstall torchcodec' then restart the application.")
+        else:
+            error_msg = f"Speaker diarization failed: {error_str}"
         logger.error(error_msg)
         if debug:
             import traceback
