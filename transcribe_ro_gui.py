@@ -61,6 +61,13 @@ class TranscribeROGUI:
         self.root.title("Transcribe RO - Transcriere Audio și Traducere (Audio Transcription & Translation)")
         self.root.geometry("1200x800")
         
+        # Setup logging FIRST - before anything else that might need logging
+        setup_logging(debug=False)
+        self.logger = logging.getLogger(__name__)
+        
+        # Track if HF token was loaded from settings (for UI feedback)
+        self.hf_token_loaded_from_settings = False
+        
         # Initialize settings manager and load saved settings
         self.settings_manager = None
         if PREFERENCES_AVAILABLE:
@@ -117,10 +124,6 @@ class TranscribeROGUI:
             ("All Files", "*.*")
         ]
         
-        # Setup logging
-        setup_logging(debug=False)
-        self.logger = logging.getLogger(__name__)
-        
         # Create GUI elements
         self.create_widgets()
         
@@ -139,13 +142,31 @@ class TranscribeROGUI:
     def _apply_saved_settings(self):
         """Apply saved settings on application startup."""
         if not self.settings_manager:
+            self.logger.debug("Settings manager not available")
             return
         
-        # Apply HF_TOKEN to environment variable if auto-load is enabled
-        auto_load = self.settings_manager.get("general", "auto_load_token", True)
-        if auto_load:
-            if self.settings_manager.apply_hf_token_to_env():
-                self.logger.info("HF_TOKEN loaded from saved preferences")
+        self.logger.info("Loading settings from config file...")
+        
+        # Check if there's a saved HF token
+        saved_token = self.settings_manager.get_hf_token()
+        
+        if saved_token:
+            self.logger.info(f"Found saved HF token (length: {len(saved_token)}, prefix: {saved_token[:7]}...)")
+            
+            # Always apply the HF token to environment variable
+            # The auto_load setting is for future use with other settings
+            os.environ['HF_TOKEN'] = saved_token
+            self.hf_token_loaded_from_settings = True
+            self.logger.info("HF_TOKEN successfully set in environment from saved preferences")
+            
+            # Verify it was set
+            if os.environ.get('HF_TOKEN'):
+                self.logger.info("Verification: HF_TOKEN is now available in os.environ")
+            else:
+                self.logger.error("Verification FAILED: HF_TOKEN not found in os.environ after setting")
+        else:
+            self.logger.info("No HF_TOKEN found in saved settings - speaker diarization will require manual token entry")
+            self.hf_token_loaded_from_settings = False
     
     def open_preferences(self):
         """Open the preferences dialog."""
@@ -161,6 +182,10 @@ class TranscribeROGUI:
     
     def _on_settings_saved(self):
         """Callback when settings are saved - update UI accordingly."""
+        # Check if HF_TOKEN is now available in environment
+        if os.environ.get('HF_TOKEN'):
+            self.hf_token_loaded_from_settings = True
+            self.logger.info("Settings saved - HF_TOKEN is available in environment")
         # Update speaker recognition status
         self._update_speaker_status()
     
@@ -173,7 +198,11 @@ class TranscribeROGUI:
         is_available, error_msg = check_diarization_requirements()
         
         if is_available:
-            status_text = "✓ Recunoașterea vorbitorilor este disponibilă (Speaker recognition is available)"
+            # Check if token was loaded from settings vs manually set
+            if getattr(self, 'hf_token_loaded_from_settings', False):
+                status_text = "✓ Token încărcat din preferințe - recunoașterea vorbitorilor disponibilă (Token loaded from preferences - speaker recognition available)"
+            else:
+                status_text = "✓ Recunoașterea vorbitorilor este disponibilă (Speaker recognition is available)"
             status_color = "green"
         elif not DIARIZATION_AVAILABLE:
             status_text = "⚠️ pyannote.audio nu este instalat (pyannote.audio not installed)"
