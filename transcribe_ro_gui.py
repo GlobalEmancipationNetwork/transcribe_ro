@@ -654,7 +654,7 @@ class TranscribeROGUI:
                     "green"
                 ))
             else:
-                # Translate to Romanian
+                # Translate to Romanian - segment by segment to preserve timestamps
                 if not self.processing:
                     return
                 
@@ -665,11 +665,37 @@ class TranscribeROGUI:
                 self.root.after(0, lambda: self.translation_status.set("În curs (In progress...)"))
                 self.root.after(0, lambda: self.translation_status_label.config(foreground="orange"))
                 
-                # Translate the full text
-                translated_text = self.transcriber.translate_to_romanian(
-                    transcribed_text,
-                    source_lang=detected_language
-                )
+                # Translate each segment individually to preserve timestamps and speaker labels
+                translated_segments = []
+                total_segments = len(segments)
+                
+                for idx, segment in enumerate(segments):
+                    if not self.processing:
+                        return
+                    
+                    # Update progress
+                    progress_msg = f"Se traduce segmentul {idx + 1}/{total_segments}... (Translating segment {idx + 1}/{total_segments}...)"
+                    self.root.after(0, lambda msg=progress_msg: self.update_status(msg, "orange"))
+                    
+                    # Get segment text
+                    segment_text = segment['text'].strip()
+                    
+                    # Translate individual segment
+                    if segment_text:
+                        translated_text = self.transcriber.translate_to_romanian(
+                            segment_text,
+                            source_lang=detected_language
+                        )
+                    else:
+                        translated_text = ""
+                    
+                    # Store translated segment with original timing and speaker info
+                    translated_segments.append({
+                        'start': segment['start'],
+                        'end': segment['end'],
+                        'text': translated_text,
+                        'speaker': segment.get('speaker')
+                    })
                 
                 if not self.processing:
                     return
@@ -688,18 +714,11 @@ class TranscribeROGUI:
                 else:
                     self.root.after(0, lambda: self.translation_status_label.config(foreground="gray"))
                 
-                # For the translation panel, we'll show a simplified version with timestamps
-                # Note: Full segment-by-segment translation would require translating each segment separately
-                # For now, show the full translation with a note
-                translation_display = "TRADUCERE ÎN ROMÂNĂ (Romanian Translation):\n"
-                translation_display += "="*60 + "\n\n"
-                translation_display += translated_text + "\n\n"
-                translation_display += "="*60 + "\n"
-                translation_display += "Notă: Pentru marcaje de timp detaliate, consultați panoul original.\n"
-                translation_display += "(Note: For detailed timestamps, refer to the original panel.)"
+                # Format translated segments with timestamps and speaker labels (same format as original)
+                formatted_translation = self._format_text_with_timestamps(translated_segments, speaker_timeline)
                 
                 # Display translation
-                self.root.after(0, lambda: self.translation_text.insert(1.0, translation_display))
+                self.root.after(0, lambda: self.translation_text.insert(1.0, formatted_translation))
                 
                 status_msg = f"✓ Transcriere și traducere complete! (Transcription and translation complete!) Limbă detectată (Detected language): {detected_language} | Traducere (Translation): {translation_status}"
                 self.root.after(0, lambda: self.update_status(status_msg, "green"))
