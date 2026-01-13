@@ -61,8 +61,11 @@ class TranscribeROGUI:
         self.force_cpu = tk.BooleanVar(value=False)
         self.translation_mode = tk.StringVar(value="auto")
         self.translation_status = tk.StringVar(value="Neînceput (Not started)")
+        self.speaker1_name = tk.StringVar(value="")  # Speaker 1 name
+        self.speaker2_name = tk.StringVar(value="")  # Speaker 2 name
         self.processing = False
         self.transcriber = None
+        self.current_result = None  # Store the transcription result with segments
         
         # Language options
         self.languages = {
@@ -122,6 +125,7 @@ class TranscribeROGUI:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(1, weight=1)
         
         # Header
         self.create_header(main_frame)
@@ -129,11 +133,11 @@ class TranscribeROGUI:
         # File selection section
         self.create_file_selection(main_frame)
         
-        # Settings section
-        self.create_settings_section(main_frame)
+        # Settings and Language selection section (side by side)
+        self.create_settings_and_language_section(main_frame)
         
-        # Language selection section
-        self.create_language_selection(main_frame)
+        # Speaker recognition section
+        self.create_speaker_section(main_frame)
         
         # Control buttons
         self.create_control_buttons(main_frame)
@@ -144,7 +148,7 @@ class TranscribeROGUI:
         # Status message
         self.create_status_message(main_frame)
         
-        # Results section (two side-by-side panels)
+        # Results section (two side-by-side panels) - expanded
         self.create_results_section(main_frame)
     
     def create_header(self, parent):
@@ -198,10 +202,17 @@ class TranscribeROGUI:
         )
         clear_btn.grid(row=0, column=2, padx=(10, 0))
     
-    def create_settings_section(self, parent):
-        """Create the settings section."""
-        settings_frame = ttk.LabelFrame(parent, text="Setări (Settings)", padding="10")
-        settings_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+    def create_settings_and_language_section(self, parent):
+        """Create the settings and language selection sections side by side."""
+        # Container for both sections
+        container = ttk.Frame(parent)
+        container.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        container.columnconfigure(0, weight=1)
+        container.columnconfigure(1, weight=1)
+        
+        # Left side: Settings
+        settings_frame = ttk.LabelFrame(container, text="Setări (Settings)", padding="10")
+        settings_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
         
         # Model size selection
         ttk.Label(settings_frame, text="Dimensiune Model (Model Size):").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
@@ -212,7 +223,7 @@ class TranscribeROGUI:
             state="readonly",
             width=15
         )
-        model_combo.grid(row=0, column=1, sticky=tk.W, padx=(0, 20))
+        model_combo.grid(row=0, column=1, sticky=tk.W, padx=(0, 10))
         
         ttk.Label(
             settings_frame,
@@ -229,7 +240,7 @@ class TranscribeROGUI:
             state="readonly",
             width=15
         )
-        device_combo.grid(row=1, column=1, sticky=tk.W, padx=(0, 20), pady=(10, 0))
+        device_combo.grid(row=1, column=1, sticky=tk.W, padx=(0, 10), pady=(10, 0))
         
         ttk.Label(
             settings_frame,
@@ -247,7 +258,7 @@ class TranscribeROGUI:
         
         ttk.Label(
             settings_frame,
-            text="⚠️ Bifați dacă întâmpinați erori MPS/GPU NaN. Revenirea automată este activată implicit.",
+            text="⚠️ Bifați dacă întâmpinați erori MPS/GPU NaN.",
             font=("Helvetica", 8),
             foreground="orange"
         ).grid(row=3, column=0, columnspan=3, sticky=tk.W)
@@ -261,7 +272,7 @@ class TranscribeROGUI:
             state="readonly",
             width=15
         )
-        translation_combo.grid(row=4, column=1, sticky=tk.W, padx=(0, 20), pady=(10, 0))
+        translation_combo.grid(row=4, column=1, sticky=tk.W, padx=(0, 10), pady=(10, 0))
         
         ttk.Label(
             settings_frame,
@@ -270,7 +281,7 @@ class TranscribeROGUI:
         ).grid(row=4, column=2, sticky=tk.W, pady=(10, 0))
         
         # Translation status label
-        ttk.Label(settings_frame, text="Status Traducere (Translation Status):").grid(row=5, column=0, sticky=tk.W, padx=(0, 10), pady=(10, 0))
+        ttk.Label(settings_frame, text="Status Traducere:").grid(row=5, column=0, sticky=tk.W, padx=(0, 10), pady=(10, 0))
         self.translation_status_label = ttk.Label(
             settings_frame,
             textvariable=self.translation_status,
@@ -278,11 +289,10 @@ class TranscribeROGUI:
             foreground="gray"
         )
         self.translation_status_label.grid(row=5, column=1, columnspan=2, sticky=tk.W, pady=(10, 0))
-    
-    def create_language_selection(self, parent):
-        """Create the language selection section."""
-        lang_frame = ttk.LabelFrame(parent, text="Limbă Sursă (Source Language)", padding="10")
-        lang_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        # Right side: Language Selection
+        lang_frame = ttk.LabelFrame(container, text="Limbă Sursă (Source Language)", padding="10")
+        lang_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
         
         # Create a scrollable frame for language options
         canvas = tk.Canvas(lang_frame, height=120)
@@ -329,10 +339,44 @@ class TranscribeROGUI:
         )
         info_label.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(10, 0))
     
+    def create_speaker_section(self, parent):
+        """Create the speaker recognition section."""
+        speaker_frame = ttk.LabelFrame(parent, text="🎤 Recunoaștere Vorbitori (Speaker Recognition) - Opțional", padding="10")
+        speaker_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        speaker_frame.columnconfigure(1, weight=1)
+        speaker_frame.columnconfigure(3, weight=1)
+        
+        # Speaker 1 name
+        ttk.Label(speaker_frame, text="Nume Vorbitor 1 (Speaker 1 Name):").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
+        speaker1_entry = ttk.Entry(
+            speaker_frame,
+            textvariable=self.speaker1_name,
+            width=20
+        )
+        speaker1_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(0, 20))
+        
+        # Speaker 2 name
+        ttk.Label(speaker_frame, text="Nume Vorbitor 2 (Speaker 2 Name):").grid(row=0, column=2, sticky=tk.W, padx=(0, 10))
+        speaker2_entry = ttk.Entry(
+            speaker_frame,
+            textvariable=self.speaker2_name,
+            width=20
+        )
+        speaker2_entry.grid(row=0, column=3, sticky=(tk.W, tk.E))
+        
+        # Info label
+        info_label = ttk.Label(
+            speaker_frame,
+            text="ℹ️ Introduceți numele a doi vorbitori pentru a activa diarizarea vorbitorilor. Necesită token HuggingFace (HF_TOKEN).",
+            font=("Helvetica", 8),
+            foreground="blue"
+        )
+        info_label.grid(row=1, column=0, columnspan=4, sticky=tk.W, pady=(10, 0))
+    
     def create_control_buttons(self, parent):
         """Create control buttons."""
         button_frame = ttk.Frame(parent)
-        button_frame.grid(row=4, column=0, pady=(0, 10))
+        button_frame.grid(row=4, column=0, columnspan=2, pady=(0, 10))
         
         # Process button
         self.process_btn = ttk.Button(
@@ -356,7 +400,7 @@ class TranscribeROGUI:
     def create_progress_bar(self, parent):
         """Create progress bar."""
         progress_frame = ttk.Frame(parent)
-        progress_frame.grid(row=5, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        progress_frame.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         progress_frame.columnconfigure(0, weight=1)
         
         self.progress = ttk.Progressbar(
@@ -369,7 +413,7 @@ class TranscribeROGUI:
     def create_status_message(self, parent):
         """Create status message label."""
         status_frame = ttk.Frame(parent)
-        status_frame.grid(row=6, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        status_frame.grid(row=6, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         
         self.status_label = ttk.Label(
             status_frame,
@@ -382,10 +426,10 @@ class TranscribeROGUI:
     def create_results_section(self, parent):
         """Create the results section with two side-by-side panels."""
         results_frame = ttk.LabelFrame(parent, text="Rezultate (Results)", padding="10")
-        results_frame.grid(row=7, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 0))
+        results_frame.grid(row=7, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 0))
         
-        # Configure grid weights for resizing
-        parent.rowconfigure(7, weight=1)
+        # Configure grid weights for resizing - give more weight to results section
+        parent.rowconfigure(7, weight=3)  # Give results section 3x weight
         results_frame.columnconfigure(0, weight=1)
         results_frame.columnconfigure(1, weight=1)
         results_frame.rowconfigure(1, weight=1)
@@ -555,19 +599,53 @@ class TranscribeROGUI:
             
             detected_language = result.get('language', 'unknown')
             transcribed_text = result.get('text', '').strip()
+            segments = result.get('segments', [])
             
-            # Display original transcript
-            self.root.after(0, lambda: self.original_text.insert(1.0, transcribed_text))
+            # Store the result for later use
+            self.current_result = result
+            
+            # Perform speaker diarization if both speaker names are provided
+            speaker_timeline = None
+            speaker1 = self.speaker1_name.get().strip()
+            speaker2 = self.speaker2_name.get().strip()
+            
+            if speaker1 and speaker2:
+                self.root.after(0, lambda: self.update_status("Se efectuează diarizarea vorbitorilor... (Performing speaker diarization...)", "orange"))
+                
+                # Import speaker diarization functions
+                from transcribe_ro import perform_speaker_diarization, get_speaker_for_timestamp
+                
+                speaker_timeline = perform_speaker_diarization(
+                    self.selected_file.get(),
+                    speaker_names=[speaker1, speaker2],
+                    debug=False
+                )
+                
+                # Add speaker labels to segments
+                if speaker_timeline:
+                    for segment in segments:
+                        segment_mid = (segment['start'] + segment['end']) / 2
+                        speaker = get_speaker_for_timestamp(speaker_timeline, segment_mid)
+                        segment['speaker'] = speaker if speaker else "Unknown"
+                    self.logger.info(f"✓ Speaker diarization complete with {len(speaker_timeline)} segments")
+                else:
+                    self.logger.warning("Speaker diarization failed or returned no results")
+            
+            # Format original transcript with timestamps and speaker labels
+            formatted_transcript = self._format_text_with_timestamps(segments, speaker_timeline)
+            
+            # Display original transcript with timestamps
+            self.root.after(0, lambda: self.original_text.insert(1.0, formatted_transcript))
             
             # Check if translation is needed
             if detected_language == 'ro':
-                # Audio is already in Romanian
+                # Audio is already in Romanian - show the same formatted transcript
                 self.root.after(0, lambda: self.translation_text.insert(
                     1.0,
-                    "✓ Audio-ul sursă este deja în română.\n\nNu este necesară traducerea. "
-                    "Transcrierea din panoul stâng este rezultatul final.\n\n"
+                    "✓ Audio-ul sursă este deja în română.\n\n"
+                    "Nu este necesară traducerea. Transcrierea cu marcaje de timp este afișată în panoul stâng.\n\n"
                     "(Source audio is already in Romanian. No translation needed. "
-                    "The transcript in the left panel is the final result.)"
+                    "The timestamped transcript is displayed in the left panel.)"
                 ))
                 self.root.after(0, lambda: self.translation_status.set("Nu e necesară (deja română / Not needed)"))
                 self.root.after(0, lambda: self.translation_status_label.config(foreground="green"))
@@ -587,6 +665,7 @@ class TranscribeROGUI:
                 self.root.after(0, lambda: self.translation_status.set("În curs (In progress...)"))
                 self.root.after(0, lambda: self.translation_status_label.config(foreground="orange"))
                 
+                # Translate the full text
                 translated_text = self.transcriber.translate_to_romanian(
                     transcribed_text,
                     source_lang=detected_language
@@ -609,8 +688,18 @@ class TranscribeROGUI:
                 else:
                     self.root.after(0, lambda: self.translation_status_label.config(foreground="gray"))
                 
+                # For the translation panel, we'll show a simplified version with timestamps
+                # Note: Full segment-by-segment translation would require translating each segment separately
+                # For now, show the full translation with a note
+                translation_display = "TRADUCERE ÎN ROMÂNĂ (Romanian Translation):\n"
+                translation_display += "="*60 + "\n\n"
+                translation_display += translated_text + "\n\n"
+                translation_display += "="*60 + "\n"
+                translation_display += "Notă: Pentru marcaje de timp detaliate, consultați panoul original.\n"
+                translation_display += "(Note: For detailed timestamps, refer to the original panel.)"
+                
                 # Display translation
-                self.root.after(0, lambda: self.translation_text.insert(1.0, translated_text))
+                self.root.after(0, lambda: self.translation_text.insert(1.0, translation_display))
                 
                 status_msg = f"✓ Transcriere și traducere complete! (Transcription and translation complete!) Limbă detectată (Detected language): {detected_language} | Traducere (Translation): {translation_status}"
                 self.root.after(0, lambda: self.update_status(status_msg, "green"))
@@ -638,6 +727,43 @@ class TranscribeROGUI:
         self.process_btn.config(state="normal")
         self.stop_btn.config(state="disabled")
         self.progress.stop()
+    
+    @staticmethod
+    def _format_timestamp(seconds):
+        """Format timestamp in seconds to readable format HH:MM:SS."""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    
+    def _format_text_with_timestamps(self, segments, speaker_timeline=None):
+        """
+        Format text with timestamps and optional speaker labels.
+        
+        Args:
+            segments: List of transcription segments from Whisper
+            speaker_timeline: Optional dictionary mapping time ranges to speakers
+        
+        Returns:
+            Formatted text string
+        """
+        if not segments:
+            return ""
+        
+        formatted_lines = []
+        for segment in segments:
+            start_time = self._format_timestamp(segment['start'])
+            end_time = self._format_timestamp(segment['end'])
+            text = segment['text'].strip()
+            
+            # Add speaker label if available
+            speaker = segment.get('speaker')
+            if speaker:
+                formatted_lines.append(f"[{start_time} -> {end_time}] [Speaker: {speaker}] {text}")
+            else:
+                formatted_lines.append(f"[{start_time} -> {end_time}] {text}")
+        
+        return "\n".join(formatted_lines)
     
     def copy_text(self, text_widget):
         """Copy text from widget to clipboard."""
