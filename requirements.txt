@@ -1,0 +1,24 @@
+# Core dependencies for transcribe_ro
+
+# OpenAI Whisper for audio transcription
+openai-whisper>=20231117
+
+# PyTorch (CPU version for portability)
+# For GPU support, install: torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# Translation libraries
+# Online translation (requires internet)
+deep-translator>=1.11.4
+
+# Offline translation (no internet required)
+transformers>=4.30.0
+sentencepiece>=0.1.99
+protobuf>=3.20.0
+
+# Audio processing
+ffmpeg-python>=0.2.0
+
+# Additional utilities
+numpy>=1.24.0
