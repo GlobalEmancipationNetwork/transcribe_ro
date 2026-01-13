@@ -2,21 +2,34 @@
 
 A portable CLI tool for transcribing audio recordings in any language and translating them to Romanian. Built with OpenAI Whisper for automatic language detection and accurate transcription of 99+ languages.
 
+## 🆕 What's New in v1.2.0
+
+- **🎬 Video File Support**: Process MP4, AVI, MOV, MKV and other video formats
+- **📦 Batch Processing**: Process entire directories with `--directory` option
+- **🎤 Speaker Diarization**: Identify and label speakers with `--speakers` option
+- **⏱️ Enhanced Timestamps**: Timestamps now included in both original AND translated outputs
+- **🔄 Model Preloading**: Faster subsequent runs with automatic model downloading
+- **🎯 Improved Default**: Changed default model from 'base' to 'small' for better accuracy
+
 ## ✨ Features
 
 - **🖥️ User-Friendly GUI**: Graphical interface with file browser, language selection, and two-panel results display
 - **💻 Command-Line Interface**: Powerful CLI for advanced users and automation
 - **🌍 Multi-language Support**: Automatically detects and transcribes audio in 99+ languages
-- **🇷🇴 Romanian Translation**: Translates transcriptions to Romanian automatically
+- **🇷🇴 Romanian Translation**: Translates transcriptions to Romanian automatically with timestamps
 - **⚡ GPU Acceleration**: Supports Apple Silicon (M1/M2/M3) and NVIDIA CUDA for 3-10x faster transcription
 - **🍎 Apple Silicon Optimized**: FP32 optimization eliminates FP16 warnings on M-series chips
 - **🛡️ Automatic Error Recovery**: Detects MPS NaN errors and automatically falls back to CPU for reliable transcription
-- **📁 Multiple Audio Formats**: Supports MP3, WAV, M4A, FLAC, OGG, AAC, OPUS, and more
-- **⏱️ Timestamp Support**: Includes detailed timestamps for each segment
+- **📁 Multiple Audio & Video Formats**: Supports MP3, WAV, M4A, MP4, AVI, MOV, MKV, and more
+- **🎬 Video File Support**: Extract audio from video files automatically
+- **⏱️ Timestamp Support**: Includes detailed timestamps for each segment in both original and translated outputs
 - **📄 Multiple Output Formats**: Export as TXT, JSON, SRT, or VTT
+- **📦 Batch Processing**: Process entire directories of audio/video files at once
+- **🎤 Speaker Diarization**: Identify and label different speakers in recordings
 - **💾 Portable**: Designed to run from a flash drive with minimal setup
 - **🚀 Easy to Use**: Simple interfaces for both beginners and advanced users
 - **🔧 Flexible**: Multiple model sizes for different accuracy/speed tradeoffs
+- **🔄 Model Preloading**: Automatically downloads models on first use for faster subsequent runs
 
 ## 📋 Requirements
 
@@ -177,16 +190,96 @@ python transcribe_ro.py audio.mp3 --format vtt
 python transcribe_ro.py audio.mp3 --no-timestamps
 ```
 
+### 🎬 Video File Support
+
+Transcribe RO now supports video files! The audio will be automatically extracted from video files.
+
+**Supported video formats**: MP4, AVI, MOV, MKV, FLV, WMV, WEBM, MPEG, MPG
+
+**Example**:
+```bash
+# Transcribe a video file
+python transcribe_ro.py video.mp4
+
+# Generate subtitles from video
+python transcribe_ro.py video.mp4 --format srt
+
+# Transcribe video without translation
+python transcribe_ro.py video.mp4 --no-translate
+```
+
+### 📦 Batch Directory Processing
+
+Process multiple audio/video files at once by specifying a directory instead of a single file.
+
+**Example**:
+```bash
+# Process all audio/video files in a directory
+python transcribe_ro.py --directory /path/to/media/files
+
+# Batch process with specific format
+python transcribe_ro.py --directory ./recordings --format srt
+
+# Batch process without translation
+python transcribe_ro.py --directory ./recordings --no-translate
+
+# Batch process with specific model
+python transcribe_ro.py --directory ./recordings --model medium
+```
+
+**Features**:
+- Automatically finds all supported audio/video files in the directory
+- Creates separate output files for each input file
+- Shows progress for each file
+- Provides summary of successful and failed files
+- Continues processing even if individual files fail
+
+### 🎤 Speaker Diarization
+
+Identify and label different speakers in your recordings! This feature requires the `pyannote.audio` library and a HuggingFace token.
+
+**Setup**:
+1. Install pyannote.audio: `pip install pyannote.audio`
+2. Get a HuggingFace token at https://huggingface.co/settings/tokens
+3. Accept terms at https://huggingface.co/pyannote/speaker-diarization
+4. Set environment variable: `export HF_TOKEN=your_token_here`
+
+**Example**:
+```bash
+# Transcribe with two speakers
+python transcribe_ro.py interview.mp3 --speakers "John,Mary"
+
+# Speaker diarization with subtitles
+python transcribe_ro.py interview.mp4 --speakers "Host,Guest" --format srt
+
+# Batch process with speaker labels
+python transcribe_ro.py --directory ./interviews --speakers "Interviewer,Interviewee"
+```
+
+**Output Format**:
+- Speaker labels are included in timestamps: `[00:00:00 -> 00:00:05] [John] Hello, how are you?`
+- Works with all output formats (TXT, JSON, SRT, VTT)
+- Speaker labels are preserved in both original and translated outputs
+
+**Note**: Speaker diarization works best with:
+- Clear audio recordings
+- Distinct speaker voices
+- Two speakers (as specified)
+- Good audio quality without background noise
+
 ### Command-Line Options
 
 ```
 usage: transcribe_ro.py [-h] [-o OUTPUT] [-m {tiny,base,small,medium,large}]
                         [-f {txt,json,srt,vtt}] [--no-translate]
-                        [--no-timestamps] [--device {auto,cpu,mps,cuda}] [--debug]
-                        [--version] audio_file
+                        [--no-timestamps] [--device {auto,cpu,mps,cuda}]
+                        [--force-cpu] [--translation-mode {auto,online,offline}]
+                        [--debug] [-d DIRECTORY] [--speakers SPEAKERS] [--version]
+                        [audio_file]
 
 positional arguments:
-  audio_file            Path to audio file (MP3, WAV, M4A, FLAC, etc.)
+  audio_file            Path to audio/video file (MP3, WAV, M4A, MP4, AVI, MOV, etc.)
+                        Optional if --directory is specified
 
 optional arguments:
   -h, --help            Show this help message and exit
@@ -196,7 +289,7 @@ optional arguments:
                         - Original: <filename>_transcription.<format>
                         - Translated: <filename>_translated_ro.<format>
   -m {tiny,base,small,medium,large}, --model {tiny,base,small,medium,large}
-                        Whisper model size (default: base)
+                        Whisper model size (default: small)
   -f {txt,json,srt,vtt}, --format {txt,json,srt,vtt}
                         Output format (default: txt)
   --no-translate        Skip translation to Romanian (only transcribe)
@@ -209,7 +302,15 @@ optional arguments:
                         - cpu: Force CPU usage
                         - mps: Use Apple Silicon GPU (M1/M2/M3)
                         - cuda: Use NVIDIA GPU
+  --force-cpu           Force CPU usage, bypassing GPU acceleration
+  --translation-mode {auto,online,offline}
+                        Translation mode (default: auto)
   --debug               Enable detailed debug output for troubleshooting
+  -d DIRECTORY, --directory DIRECTORY
+                        Process all audio/video files in the specified directory (batch mode)
+  --speakers SPEAKERS   Enable speaker diarization with two speaker names separated by comma
+                        Example: --speakers "John,Mary"
+                        Requires: pip install pyannote.audio and HF_TOKEN environment variable
   --version             Show program's version number and exit
 ```
 
@@ -220,12 +321,12 @@ Choose the right model for your needs:
 | Model  | Size  | Speed      | Accuracy | Recommended For |
 |--------|-------|------------|----------|-----------------|
 | tiny   | ~75MB | Fastest    | Good     | Quick tests, previews |
-| base   | ~150MB| Very Fast  | Better   | **Default** - balanced |
-| small  | ~500MB| Fast       | Great    | Better accuracy needs |
+| base   | ~150MB| Very Fast  | Better   | Fast processing |
+| small  | ~500MB| Fast       | Great    | **Default** - balanced accuracy & speed |
 | medium | ~1.5GB| Moderate   | Excellent| High accuracy needs |
 | large  | ~3GB  | Slow       | Best     | Maximum accuracy |
 
-**Recommendation**: Start with `base` (default). Upgrade to `small` or `medium` if accuracy is insufficient.
+**Recommendation**: Start with `small` (default). Downgrade to `base` for faster processing or upgrade to `medium` if accuracy is critical.
 
 ## ⚡ GPU Acceleration
 
@@ -441,12 +542,15 @@ Standard subtitle formats with timestamps, perfect for video subtitling.
 ## 🎯 Use Cases
 
 - **Conference Recordings**: Transcribe multilingual meetings and translate to Romanian
-- **Interviews**: Convert interview recordings to searchable text
+- **Interviews**: Convert interview recordings to searchable text with speaker identification
 - **Lectures**: Create transcripts of educational content
-- **Podcasts**: Generate transcripts for accessibility
+- **Podcasts**: Generate transcripts for accessibility with speaker labels
 - **Voice Notes**: Convert voice memos to text
-- **Video Subtitles**: Generate subtitle files for videos
+- **Video Subtitles**: Generate subtitle files directly from video files
 - **Legal/Medical**: Transcribe professional recordings (use larger models)
+- **Batch Processing**: Transcribe entire folders of recordings efficiently
+- **Video Content**: Extract and transcribe audio from video files for subtitles or documentation
+- **Multi-Speaker Content**: Identify and label different speakers in conversations and interviews
 
 ## 💾 Portable Flash Drive Setup
 

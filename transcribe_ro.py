@@ -18,6 +18,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 import warnings
+import glob
 
 # Set MPS-specific environment variables for stability
 # These help prevent NaN issues on Apple Silicon GPUs
@@ -117,6 +118,17 @@ except ImportError:
     logger.warning("PyTorch not available. Using basic device detection.")
     TORCH_AVAILABLE = False
     torch = None
+
+# Try to import speaker diarization dependencies
+try:
+    from pyannote.audio import Pipeline
+    DIARIZATION_AVAILABLE = True
+    logger.info("Speaker diarization (pyannote.audio) loaded successfully")
+except ImportError:
+    logger.warning("pyannote.audio not installed. Speaker diarization will not be available.")
+    logger.warning("Install with: pip install pyannote.audio")
+    DIARIZATION_AVAILABLE = False
+    Pipeline = None
 
 
 def check_internet_connectivity(timeout=3):
@@ -324,6 +336,191 @@ class OfflineTranslator:
                 translated_sentences.append(sentence)  # Keep original
         
         return " ".join(translated_sentences)
+
+
+def preload_model(model_name, debug=False):
+    """
+    Preload/download Whisper model to ensure it's available for use.
+    This is helpful for first-time runs to download the model before processing.
+    
+    Args:
+        model_name: Whisper model to preload
+        debug: Enable debug output
+    
+    Returns:
+        bool: True if model is available, False otherwise
+    """
+    try:
+        import whisper
+        model_path = whisper._download(whisper._MODELS[model_name])
+        if debug:
+            logger.debug(f"Model '{model_name}' is available at: {model_path}")
+        return True
+    except Exception as e:
+        logger.warning(f"Could not preload model '{model_name}': {e}")
+        return False
+
+
+def perform_speaker_diarization(audio_path, speaker_names=None, debug=False):
+    """
+    Perform speaker diarization on an audio file.
+    
+    Args:
+        audio_path: Path to audio file
+        speaker_names: List of two speaker names (e.g., ["John", "Mary"])
+        debug: Enable debug output
+    
+    Returns:
+        Dictionary mapping time ranges to speaker labels, or None if unavailable
+    """
+    if not DIARIZATION_AVAILABLE:
+        logger.error("Speaker diarization not available. Install with: pip install pyannote.audio")
+        return None
+    
+    try:
+        logger.info("Performing speaker diarization...")
+        logger.info("Note: This requires a HuggingFace token for pyannote.audio models")
+        logger.info("Set HF_TOKEN environment variable or accept terms at: https://huggingface.co/pyannote/speaker-diarization")
+        
+        # Try to get HuggingFace token from environment
+        hf_token = os.environ.get('HF_TOKEN') or os.environ.get('HUGGING_FACE_TOKEN')
+        
+        if not hf_token:
+            logger.error("HuggingFace token not found. Please set HF_TOKEN environment variable.")
+            logger.error("Get your token at: https://huggingface.co/settings/tokens")
+            return None
+        
+        # Load diarization pipeline
+        pipeline = Pipeline.from_pretrained(
+            "pyannote/speaker-diarization-3.1",
+            use_auth_token=hf_token
+        )
+        
+        # Run diarization
+        diarization = pipeline(audio_path)
+        
+        # Map speaker labels to custom names if provided
+        speaker_map = {}
+        if speaker_names and len(speaker_names) == 2:
+            unique_speakers = sorted(set(turn.label for turn in diarization.itertracks(yield_label=True)))
+            if len(unique_speakers) >= 2:
+                speaker_map[unique_speakers[0]] = speaker_names[0]
+                speaker_map[unique_speakers[1]] = speaker_names[1]
+                logger.info(f"Mapping speakers: {unique_speakers[0]} -> {speaker_names[0]}, {unique_speakers[1]} -> {speaker_names[1]}")
+        
+        # Convert to dictionary format
+        speaker_timeline = {}
+        for turn, _, speaker in diarization.itertracks(yield_label=True):
+            mapped_speaker = speaker_map.get(speaker, speaker)
+            speaker_timeline[(turn.start, turn.end)] = mapped_speaker
+        
+        logger.info(f"✓ Speaker diarization complete: {len(speaker_timeline)} segments")
+        return speaker_timeline
+        
+    except Exception as e:
+        logger.error(f"Speaker diarization failed: {e}")
+        if debug:
+            import traceback
+            logger.debug(traceback.format_exc())
+        return None
+
+
+def get_speaker_for_timestamp(speaker_timeline, timestamp):
+    """
+    Get the speaker label for a given timestamp.
+    
+    Args:
+        speaker_timeline: Dictionary mapping time ranges to speakers
+        timestamp: Time in seconds
+    
+    Returns:
+        Speaker label or None
+    """
+    if not speaker_timeline:
+        return None
+    
+    for (start, end), speaker in speaker_timeline.items():
+        if start <= timestamp <= end:
+            return speaker
+    
+    return None
+
+
+def process_directory(directory_path, transcriber, args, supported_formats):
+    """
+    Process all audio/video files in a directory.
+    
+    Args:
+        directory_path: Path to directory
+        transcriber: AudioTranscriber instance
+        args: Command-line arguments
+        supported_formats: List of supported file extensions
+    
+    Returns:
+        List of results for each processed file
+    """
+    directory = Path(directory_path)
+    
+    if not directory.exists() or not directory.is_dir():
+        logger.error(f"Directory not found or not a directory: {directory_path}")
+        return []
+    
+    # Find all supported files
+    all_files = []
+    for ext in supported_formats:
+        all_files.extend(directory.glob(f"*{ext}"))
+    
+    if not all_files:
+        logger.warning(f"No supported audio/video files found in: {directory_path}")
+        logger.info(f"Supported formats: {', '.join(supported_formats)}")
+        return []
+    
+    logger.info(f"Found {len(all_files)} files to process")
+    
+    results = []
+    for i, file_path in enumerate(all_files, 1):
+        logger.info("=" * 80)
+        logger.info(f"Processing file {i}/{len(all_files)}: {file_path.name}")
+        logger.info("=" * 80)
+        
+        try:
+            # Process each file
+            result = transcriber.process_audio(
+                audio_path=str(file_path),
+                output_path=args.output,
+                translate=not args.no_translate,
+                include_timestamps=not args.no_timestamps,
+                output_format=args.format,
+                speaker_names=args.speakers.split(',') if args.speakers else None
+            )
+            results.append({'file': str(file_path), 'status': 'success', 'result': result})
+            logger.info(f"✓ Successfully processed: {file_path.name}")
+            
+        except Exception as e:
+            logger.error(f"✗ Failed to process {file_path.name}: {e}")
+            results.append({'file': str(file_path), 'status': 'failed', 'error': str(e)})
+            
+            if args.debug:
+                import traceback
+                logger.debug(traceback.format_exc())
+        
+        # Add spacing between files
+        if i < len(all_files):
+            print()
+    
+    # Summary
+    successful = sum(1 for r in results if r['status'] == 'success')
+    failed = len(results) - successful
+    
+    logger.info("=" * 80)
+    logger.info("BATCH PROCESSING SUMMARY")
+    logger.info("=" * 80)
+    logger.info(f"Total files: {len(results)}")
+    logger.info(f"Successful: {successful}")
+    logger.info(f"Failed: {failed}")
+    logger.info("=" * 80)
+    
+    return results
 
 
 def detect_device(preferred_device=None, debug=False):
@@ -1119,7 +1316,8 @@ class AudioTranscriber:
         output_path=None,
         translate=True,
         include_timestamps=True,
-        output_format="txt"
+        output_format="txt",
+        speaker_names=None
     ):
         """
         Process audio file: transcribe and optionally translate to Romanian.
@@ -1130,6 +1328,7 @@ class AudioTranscriber:
             translate: Whether to translate to Romanian
             include_timestamps: Whether to include timestamps in output
             output_format: Output format (txt, json, srt, vtt)
+            speaker_names: List of two speaker names for diarization (e.g., ["John", "Mary"])
         
         Returns:
             Dictionary with processing results
@@ -1156,6 +1355,22 @@ class AudioTranscriber:
         detected_language = result.get('language', 'unknown')
         transcribed_text = result.get('text', '').strip()
         segments = result.get('segments', [])
+        
+        # Perform speaker diarization if requested
+        speaker_timeline = None
+        if speaker_names and len(speaker_names) == 2:
+            speaker_timeline = perform_speaker_diarization(
+                audio_path, 
+                speaker_names=speaker_names, 
+                debug=self.debug
+            )
+            
+            # Add speaker labels to segments
+            if speaker_timeline:
+                for segment in segments:
+                    segment_mid = (segment['start'] + segment['end']) / 2
+                    speaker = get_speaker_for_timestamp(speaker_timeline, segment_mid)
+                    segment['speaker'] = speaker if speaker else "Unknown"
         
         if self.debug:
             logger.debug("="*80)
@@ -1413,7 +1628,11 @@ class AudioTranscriber:
                     start_time = self._format_timestamp(segment['start'])
                     end_time = self._format_timestamp(segment['end'])
                     text = segment['text'].strip()
-                    f.write(f"[{start_time} -> {end_time}] {text}\n")
+                    speaker = segment.get('speaker')
+                    if speaker:
+                        f.write(f"[{start_time} -> {end_time}] [{speaker}] {text}\n")
+                    else:
+                        f.write(f"[{start_time} -> {end_time}] {text}\n")
                 f.write("\n")
             
             f.write("="*80 + "\n")
@@ -1443,6 +1662,11 @@ class AudioTranscriber:
                 start_time = self._format_timestamp(segment['start'], format_type)
                 end_time = self._format_timestamp(segment['end'], format_type)
                 text = segment['text'].strip()
+                speaker = segment.get('speaker')
+                
+                # Add speaker label if available
+                if speaker:
+                    text = f"[{speaker}] {text}"
                 
                 # Note: translate parameter is kept for backward compatibility but not used
                 # Translation is now handled in separate file
@@ -1458,7 +1682,7 @@ class AudioTranscriber:
         logger.info(f"✓ Subtitle file created with {len(segments)} segments")
     
     def _write_translated_text_output(self, output_path, translation, segments, metadata):
-        """Write Romanian translation to text file."""
+        """Write Romanian translation to text file with timestamped segments."""
         with open(output_path, 'w', encoding='utf-8') as f:
             # Write header
             f.write("="*80 + "\n")
@@ -1478,11 +1702,45 @@ class AudioTranscriber:
             f.write(translation + "\n\n")
             
             # Write timestamps with translated segments if available
-            if segments:
-                f.write("TIMESTAMPS (Note: Timestamps show original timing):\n")
+            if segments and self.translator_available:
+                f.write("TIMESTAMPS WITH TRANSLATED SEGMENTS:\n")
                 f.write("-" * 40 + "\n")
-                f.write("Full text translation is shown above.\n")
-                f.write("Individual segment translation would require per-segment translation.\n\n")
+                logger.info("Translating individual segments for timestamped output...")
+                
+                for i, segment in enumerate(segments, 1):
+                    start_time = self._format_timestamp(segment['start'])
+                    end_time = self._format_timestamp(segment['end'])
+                    original_text = segment['text'].strip()
+                    speaker = segment.get('speaker')
+                    
+                    # Translate each segment
+                    try:
+                        translated_segment = self.translate_to_romanian(original_text)
+                        if speaker:
+                            f.write(f"[{start_time} -> {end_time}] [{speaker}] {translated_segment}\n")
+                        else:
+                            f.write(f"[{start_time} -> {end_time}] {translated_segment}\n")
+                        
+                        if self.debug and i <= 3:  # Show first 3 for debug
+                            logger.debug(f"Segment {i}: '{original_text}' -> '{translated_segment}'")
+                    except Exception as e:
+                        logger.warning(f"Failed to translate segment {i}: {e}")
+                        if speaker:
+                            f.write(f"[{start_time} -> {end_time}] [{speaker}] {original_text}\n")
+                        else:
+                            f.write(f"[{start_time} -> {end_time}] {original_text}\n")
+                
+                logger.info(f"✓ Translated {len(segments)} segments with timestamps")
+                f.write("\n")
+            elif segments:
+                f.write("TIMESTAMPS (Translation unavailable):\n")
+                f.write("-" * 40 + "\n")
+                for segment in segments:
+                    start_time = self._format_timestamp(segment['start'])
+                    end_time = self._format_timestamp(segment['end'])
+                    text = segment['text'].strip()
+                    f.write(f"[{start_time} -> {end_time}] {text}\n")
+                f.write("\n")
             
             f.write("="*80 + "\n")
             f.write("End of translation\n")
@@ -1500,6 +1758,7 @@ class AudioTranscriber:
                 start_time = self._format_timestamp(segment['start'], format_type)
                 end_time = self._format_timestamp(segment['end'], format_type)
                 text = segment['text'].strip()
+                speaker = segment.get('speaker')
                 
                 # Translate each segment
                 if self.translator_available:
@@ -1508,6 +1767,10 @@ class AudioTranscriber:
                     except Exception as e:
                         logger.warning(f"Failed to translate segment {i}: {e}")
                         # Keep original if translation fails
+                
+                # Add speaker label if available
+                if speaker:
+                    text = f"[{speaker}] {text}"
                 
                 if format_type == 'srt':
                     f.write(f"{i}\n")
@@ -1572,6 +1835,9 @@ Examples:
   # Basic transcription
   python transcribe_ro.py audio.mp3
   
+  # Transcribe video file
+  python transcribe_ro.py video.mp4
+  
   # Transcribe without translation
   python transcribe_ro.py audio.mp3 --no-translate
   
@@ -1589,6 +1855,12 @@ Examples:
   
   # Specify output file
   python transcribe_ro.py audio.mp3 --output result.txt
+  
+  # Batch process all files in a directory
+  python transcribe_ro.py --directory /path/to/audio/files
+  
+  # Speaker diarization with two speakers
+  python transcribe_ro.py audio.mp3 --speakers "John,Mary"
         """
     )
     
@@ -1596,7 +1868,9 @@ Examples:
     parser.add_argument(
         'audio_file',
         type=str,
-        help='Path to audio file (MP3, WAV, M4A, FLAC, etc.)'
+        nargs='?',
+        default=None,
+        help='Path to audio/video file (MP3, WAV, M4A, MP4, AVI, etc.)'
     )
     
     # Optional arguments
@@ -1611,8 +1885,8 @@ Examples:
         '-m', '--model',
         type=str,
         choices=['tiny', 'base', 'small', 'medium', 'large'],
-        default='base',
-        help='Whisper model size (default: base). Larger models are more accurate but slower.'
+        default='small',
+        help='Whisper model size (default: small). Larger models are more accurate but slower.'
     )
     
     parser.add_argument(
@@ -1664,9 +1938,23 @@ Examples:
     )
     
     parser.add_argument(
+        '-d', '--directory',
+        type=str,
+        default=None,
+        help='Process all audio/video files in the specified directory (batch mode)'
+    )
+    
+    parser.add_argument(
+        '--speakers',
+        type=str,
+        default=None,
+        help='Enable speaker diarization with two speaker names separated by comma (e.g., "John,Mary")'
+    )
+    
+    parser.add_argument(
         '--version',
         action='version',
-        version='Transcribe RO v1.1.0'
+        version='Transcribe RO v1.2.0'
     )
     
     args = parser.parse_args()
@@ -1678,25 +1966,54 @@ Examples:
     if args.debug:
         warnings.filterwarnings('default')
     
-    # Validate audio file
-    if not os.path.exists(args.audio_file):
+    # Validate that either audio_file or directory is provided
+    if not args.audio_file and not args.directory:
+        logger.error("Error: Either audio_file or --directory must be specified")
+        parser.print_help()
+        sys.exit(1)
+    
+    if args.audio_file and args.directory:
+        logger.error("Error: Cannot specify both audio_file and --directory")
+        sys.exit(1)
+    
+    # Validate audio file if provided
+    if args.audio_file and not os.path.exists(args.audio_file):
         logger.error(f"Audio file not found: {args.audio_file}")
         sys.exit(1)
     
-    # Check file extension
-    supported_formats = ['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.wma', '.aac', '.opus']
-    file_ext = Path(args.audio_file).suffix.lower()
-    if file_ext not in supported_formats:
-        logger.warning(f"File format '{file_ext}' may not be supported.")
-        logger.warning(f"Supported formats: {', '.join(supported_formats)}")
-        response = input("Continue anyway? (y/n): ")
-        if response.lower() != 'y':
-            sys.exit(0)
+    # Validate directory if provided
+    if args.directory and not os.path.isdir(args.directory):
+        logger.error(f"Directory not found: {args.directory}")
+        sys.exit(1)
+    
+    # Check file extension (audio and video formats) - only for single file mode
+    supported_audio_formats = ['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.wma', '.aac', '.opus']
+    supported_video_formats = ['.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm', '.mpeg', '.mpg']
+    supported_formats = supported_audio_formats + supported_video_formats
+    
+    if args.audio_file:
+        file_ext = Path(args.audio_file).suffix.lower()
+        if file_ext not in supported_formats:
+            logger.warning(f"File format '{file_ext}' may not be supported.")
+            logger.warning(f"Supported audio formats: {', '.join(supported_audio_formats)}")
+            logger.warning(f"Supported video formats: {', '.join(supported_video_formats)}")
+            response = input("Continue anyway? (y/n): ")
+            if response.lower() != 'y':
+                sys.exit(0)
+        
+        # Inform user if processing a video file
+        if file_ext in supported_video_formats:
+            logger.info(f"Video file detected ({file_ext}). Audio will be extracted automatically.")
     
     # Print banner
     print("\n" + "="*80)
     print("TRANSCRIBE RO - Audio Transcription & Translation Tool")
     print("="*80 + "\n")
+    
+    # Preload model to ensure it's downloaded
+    logger.info(f"Checking/downloading Whisper model '{args.model}'...")
+    if preload_model(args.model, debug=args.debug):
+        logger.info(f"✓ Model '{args.model}' is ready")
     
     try:
         if args.debug:
@@ -1724,16 +2041,34 @@ Examples:
             translation_mode=args.translation_mode
         )
         
-        # Process audio
-        result = transcriber.process_audio(
-            audio_path=args.audio_file,
-            output_path=args.output,
-            translate=not args.no_translate,
-            include_timestamps=not args.no_timestamps,
-            output_format=args.format
-        )
+        # Process audio - either single file or batch directory
+        if args.directory:
+            # Batch directory processing
+            results = process_directory(
+                args.directory,
+                transcriber,
+                args,
+                supported_formats
+            )
+            
+            if not results:
+                logger.error("No files were processed successfully")
+                sys.exit(1)
+            
+            # For batch mode, we don't have a single result to display
+            result = None
+        else:
+            # Single file processing
+            result = transcriber.process_audio(
+                audio_path=args.audio_file,
+                output_path=args.output,
+                translate=not args.no_translate,
+                include_timestamps=not args.no_timestamps,
+                output_format=args.format,
+                speaker_names=args.speakers.split(',') if args.speakers else None
+            )
         
-        if args.debug:
+        if args.debug and result:
             total_time = time.time() - process_start
             logger.debug("="*80)
             logger.debug("PROCESSING SUMMARY")
@@ -1751,12 +2086,15 @@ Examples:
         print("\n" + "="*80)
         print("PROCESSING COMPLETED SUCCESSFULLY!")
         print("="*80)
-        logger.info(f"Detected language: {result['detected_language']}")
-        logger.info(f"Original transcription: {result['output_file']}")
         
-        if result.get('translated_output_file'):
-            logger.info(f"Romanian translation: {result['translated_output_file']}")
-            logger.info("✓ Two files created: original transcription + Romanian translation")
+        if result:  # Single file mode
+            logger.info(f"Detected language: {result['detected_language']}")
+            logger.info(f"Original transcription: {result['output_file']}")
+            
+            if result.get('translated_output_file'):
+                logger.info(f"Romanian translation: {result['translated_output_file']}")
+                logger.info("✓ Two files created: original transcription + Romanian translation")
+        # Batch mode summary already printed by process_directory
         
     except KeyboardInterrupt:
         logger.warning("\nProcess interrupted by user.")
