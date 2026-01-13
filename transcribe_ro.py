@@ -86,8 +86,31 @@ warnings.filterwarnings('ignore')
 try:
     import whisper
     from whisper.utils import get_writer
-except ImportError:
-    logger.error("OpenAI Whisper not installed. Please run: pip install -r requirements.txt")
+    logger.info(f"OpenAI Whisper loaded successfully (version: {getattr(whisper, '__version__', 'unknown')})")
+except ImportError as e:
+    # Show the ACTUAL error, not a generic message
+    error_msg = str(e)
+    logger.error(f"Failed to import whisper: {error_msg}")
+    logger.error(f"Error type: {type(e).__name__}")
+    
+    # Check if it's truly whisper not installed vs a dependency issue
+    if "whisper" in error_msg.lower() or "No module named 'whisper'" in error_msg:
+        logger.error("OpenAI Whisper not installed. Please run: pip install openai-whisper")
+    else:
+        logger.error(f"Whisper import failed due to a dependency error: {error_msg}")
+        logger.error("This might be a dependency conflict. Try:")
+        logger.error("  1. pip uninstall whisper openai-whisper")
+        logger.error("  2. pip install openai-whisper")
+    
+    # Log additional debug info
+    logger.error(f"Python version: {sys.version}")
+    logger.error(f"Python path: {sys.executable}")
+    sys.exit(1)
+except Exception as e:
+    # Catch any other unexpected errors during import
+    logger.error(f"Unexpected error importing whisper: {type(e).__name__}: {e}")
+    import traceback
+    logger.error(f"Traceback:\n{traceback.format_exc()}")
     sys.exit(1)
 
 try:
