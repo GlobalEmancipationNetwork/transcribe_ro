@@ -236,27 +236,34 @@ class PreferencesDialog:
         """Create the preferences dialog window."""
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("⚙️ Preferințe / Preferences - Transcribe RO")
-        self.dialog.geometry("600x450")
-        self.dialog.resizable(False, False)
+        self.dialog.geometry("650x580")  # Increased size to fit all content + buttons
+        self.dialog.minsize(600, 500)  # Minimum size to ensure buttons are always visible
+        self.dialog.resizable(True, True)  # Allow resizing if needed
         self.dialog.transient(self.parent)
         self.dialog.grab_set()
         
         # Center dialog on parent
         self._center_on_parent()
         
-        # Main container
+        # Main container with proper structure
         main_frame = ttk.Frame(self.dialog, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Create notebook (tabbed interface)
+        # Configure grid for main_frame to keep buttons at bottom
+        main_frame.grid_rowconfigure(0, weight=1)  # Notebook expands
+        main_frame.grid_rowconfigure(1, weight=0)  # Separator
+        main_frame.grid_rowconfigure(2, weight=0)  # Buttons stay fixed
+        main_frame.grid_columnconfigure(0, weight=1)
+        
+        # Create notebook (tabbed interface) - in row 0, expandable
         self.notebook = ttk.Notebook(main_frame)
-        self.notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        self.notebook.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
         
         # Create tabs
         self._create_general_tab()
         self._create_defaults_tab()
         
-        # Bottom buttons
+        # Bottom buttons - in row 1, fixed at bottom
         self._create_buttons(main_frame)
         
         # Load current settings into form
@@ -428,17 +435,30 @@ class PreferencesDialog:
                   font=("Helvetica", 9), foreground="blue").pack(anchor=tk.W)
     
     def _create_buttons(self, parent):
-        """Create the Save/Cancel buttons."""
+        """Create the Save/Cancel buttons - always visible at bottom."""
+        # Separator line above buttons for visual clarity
+        separator = ttk.Separator(parent, orient='horizontal')
+        separator.grid(row=1, column=0, sticky="ew", pady=(5, 10))
+        
+        # Button frame using grid (row 2)
         button_frame = ttk.Frame(parent)
-        button_frame.pack(fill=tk.X, pady=(5, 0))
+        button_frame.grid(row=2, column=0, sticky="ew", pady=(0, 5))
         
-        # Cancel button (left)
-        ttk.Button(button_frame, text="❌ Anulează (Cancel)",
-                   command=self._on_cancel, width=20).pack(side=tk.LEFT)
+        # Center the buttons
+        button_frame.grid_columnconfigure(0, weight=1)
+        button_frame.grid_columnconfigure(1, weight=0)
+        button_frame.grid_columnconfigure(2, weight=0)
+        button_frame.grid_columnconfigure(3, weight=1)
         
-        # Save button (right)
-        ttk.Button(button_frame, text="💾 Salvează (Save)",
-                   command=self._on_save, width=20).pack(side=tk.RIGHT)
+        # Cancel button
+        cancel_btn = ttk.Button(button_frame, text="❌ Anulează (Cancel)",
+                                command=self._on_cancel, width=22)
+        cancel_btn.grid(row=0, column=1, padx=(0, 15))
+        
+        # Save button (styled to stand out)
+        save_btn = ttk.Button(button_frame, text="💾 Salvează (Save)",
+                              command=self._on_save, width=22)
+        save_btn.grid(row=0, column=2, padx=(15, 0))
     
     def _load_current_settings(self):
         """Load current settings into form fields."""
