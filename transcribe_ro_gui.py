@@ -84,10 +84,6 @@ class TranscribeROGUI:
         # Variables
         self.selected_file = tk.StringVar()
         self.source_language = tk.StringVar(value="ro")  # Romanian as default
-        self.model_size = tk.StringVar(value="base")
-        self.device_type = tk.StringVar(value="auto")
-        self.force_cpu = tk.BooleanVar(value=False)
-        self.translation_mode = tk.StringVar(value="auto")
         self.translation_status = tk.StringVar(value="Neînceput (Not started)")
         self.speaker1_name = tk.StringVar(value="")  # Speaker 1 name
         self.speaker2_name = tk.StringVar(value="")  # Speaker 2 name
@@ -232,11 +228,8 @@ class TranscribeROGUI:
         # File selection section
         self.create_file_selection(main_frame)
         
-        # Settings and Language selection section (side by side)
-        self.create_settings_and_language_section(main_frame)
-        
-        # Speaker recognition section
-        self.create_speaker_section(main_frame)
+        # Source Language (LEFT) and Speaker Recognition (RIGHT) side by side
+        self.create_language_and_speaker_section(main_frame)
         
         # Control buttons
         self.create_control_buttons(main_frame)
@@ -316,219 +309,116 @@ class TranscribeROGUI:
         )
         clear_btn.grid(row=0, column=2, padx=(10, 0))
     
-    def create_settings_and_language_section(self, parent):
-        """Create the settings and language selection sections side by side."""
+    def create_language_and_speaker_section(self, parent):
+        """Create Source Language (LEFT) and Speaker Recognition (RIGHT) side by side."""
         # Container for both sections
         container = ttk.Frame(parent)
         container.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         container.columnconfigure(0, weight=1)
         container.columnconfigure(1, weight=1)
         
-        # Left side: Settings
-        settings_frame = ttk.LabelFrame(container, text="Setări (Settings)", padding="10")
-        settings_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
-        
-        # Model size selection
-        ttk.Label(settings_frame, text="Dimensiune Model (Model Size):").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
-        model_combo = ttk.Combobox(
-            settings_frame,
-            textvariable=self.model_size,
-            values=["tiny", "base", "small", "medium", "large"],
-            state="readonly",
-            width=15
-        )
-        model_combo.grid(row=0, column=1, sticky=tk.W, padx=(0, 10))
-        
-        ttk.Label(
-            settings_frame,
-            text="(mai mare = mai precis dar mai lent)",
-            font=("Helvetica", 8)
-        ).grid(row=0, column=2, sticky=tk.W)
-        
-        # Device selection
-        ttk.Label(settings_frame, text="Dispozitiv (Device):").grid(row=1, column=0, sticky=tk.W, padx=(0, 10), pady=(10, 0))
-        device_combo = ttk.Combobox(
-            settings_frame,
-            textvariable=self.device_type,
-            values=["auto", "cpu", "mps", "cuda"],
-            state="readonly",
-            width=15
-        )
-        device_combo.grid(row=1, column=1, sticky=tk.W, padx=(0, 10), pady=(10, 0))
-        
-        ttk.Label(
-            settings_frame,
-            text="(auto = detectează cel mai bun)",
-            font=("Helvetica", 8)
-        ).grid(row=1, column=2, sticky=tk.W, pady=(10, 0))
-        
-        # Force CPU checkbox
-        force_cpu_check = ttk.Checkbutton(
-            settings_frame,
-            text="🔧 Forțează CPU (Force CPU - bypass GPU issues)",
-            variable=self.force_cpu
-        )
-        force_cpu_check.grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=(10, 0))
-        
-        ttk.Label(
-            settings_frame,
-            text="⚠️ Bifați dacă întâmpinați erori MPS/GPU NaN.",
-            font=("Helvetica", 8),
-            foreground="orange"
-        ).grid(row=3, column=0, columnspan=3, sticky=tk.W)
-        
-        # Translation mode selection
-        ttk.Label(settings_frame, text="Mod Traducere (Translation Mode):").grid(row=4, column=0, sticky=tk.W, padx=(0, 10), pady=(10, 0))
-        translation_combo = ttk.Combobox(
-            settings_frame,
-            textvariable=self.translation_mode,
-            values=["auto", "online", "offline"],
-            state="readonly",
-            width=15
-        )
-        translation_combo.grid(row=4, column=1, sticky=tk.W, padx=(0, 10), pady=(10, 0))
-        
-        ttk.Label(
-            settings_frame,
-            text="(auto = online mai întâi, apoi offline)",
-            font=("Helvetica", 8)
-        ).grid(row=4, column=2, sticky=tk.W, pady=(10, 0))
-        
-        # Translation status label
-        ttk.Label(settings_frame, text="Status Traducere:").grid(row=5, column=0, sticky=tk.W, padx=(0, 10), pady=(10, 0))
-        self.translation_status_label = ttk.Label(
-            settings_frame,
-            textvariable=self.translation_status,
-            font=("Helvetica", 9, "bold"),
-            foreground="gray"
-        )
-        self.translation_status_label.grid(row=5, column=1, columnspan=2, sticky=tk.W, pady=(10, 0))
-        
-        # Right side: Language Selection
+        # Left side: Language Selection
         lang_frame = ttk.LabelFrame(container, text="Limbă Sursă (Source Language)", padding="10")
-        lang_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
+        lang_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
+        lang_frame.columnconfigure(0, weight=1)
         
-        # Create a scrollable frame for language options
-        canvas = tk.Canvas(lang_frame, height=120)
-        scrollbar = ttk.Scrollbar(lang_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
+        # Add language radio buttons in a grid (no scrolling needed)
+        lang_buttons_frame = ttk.Frame(lang_frame)
+        lang_buttons_frame.grid(row=0, column=0, sticky=(tk.W, tk.E))
         
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # Add language radio buttons in a grid
         row, col = 0, 0
         max_cols = 3
         
         for lang_code, lang_name in self.languages.items():
             rb = ttk.Radiobutton(
-                scrollable_frame,
+                lang_buttons_frame,
                 text=lang_name,
                 variable=self.source_language,
                 value=lang_code
             )
-            rb.grid(row=row, column=col, sticky=tk.W, padx=10, pady=2)
+            rb.grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
             
             col += 1
             if col >= max_cols:
                 col = 0
                 row += 1
         
-        canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
-        
-        lang_frame.columnconfigure(0, weight=1)
-        
         # Info label
         info_label = ttk.Label(
             lang_frame,
             text="ℹ️ Româna este selectată implicit. Dacă audio-ul este deja în română, se va afișa doar transcrierea.",
             font=("Helvetica", 9),
-            foreground="blue"
+            foreground="blue",
+            wraplength=350
         )
-        info_label.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(10, 0))
-    
-    def create_speaker_section(self, parent):
-        """Create the speaker recognition section."""
-        speaker_frame = ttk.LabelFrame(parent, text="🎤 Recunoaștere Vorbitori (Speaker Recognition) - Opțional", padding="10")
-        speaker_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        info_label.grid(row=1, column=0, sticky=tk.W, pady=(10, 0))
+        
+        # Right side: Speaker Recognition
+        speaker_frame = ttk.LabelFrame(container, text="🎤 Recunoaștere Vorbitori (Speaker Recognition)", padding="10")
+        speaker_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
         speaker_frame.columnconfigure(1, weight=1)
-        speaker_frame.columnconfigure(3, weight=1)
         
         # Speaker 1 name
         ttk.Label(speaker_frame, text="Nume Vorbitor 1 (Speaker 1 Name):").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
         speaker1_entry = ttk.Entry(
             speaker_frame,
             textvariable=self.speaker1_name,
-            width=20
+            width=25
         )
-        speaker1_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(0, 20))
+        speaker1_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), pady=2)
         
         # Speaker 2 name
-        ttk.Label(speaker_frame, text="Nume Vorbitor 2 (Speaker 2 Name):").grid(row=0, column=2, sticky=tk.W, padx=(0, 10))
+        ttk.Label(speaker_frame, text="Nume Vorbitor 2 (Speaker 2 Name):").grid(row=1, column=0, sticky=tk.W, padx=(0, 10))
         speaker2_entry = ttk.Entry(
             speaker_frame,
             textvariable=self.speaker2_name,
-            width=20
+            width=25
         )
-        speaker2_entry.grid(row=0, column=3, sticky=(tk.W, tk.E))
+        speaker2_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=2)
         
         # Check diarization availability and show appropriate status
         is_available, error_msg = check_diarization_requirements()
         
         if is_available:
-            status_text = "✓ Recunoașterea vorbitorilor este disponibilă (Speaker recognition is available)"
+            # Check if token was loaded from settings vs manually set
+            if getattr(self, 'hf_token_loaded_from_settings', False):
+                status_text = "✓ Token încărcat din preferințe (Token loaded from preferences)"
+            else:
+                status_text = "✓ Recunoașterea vorbitorilor disponibilă (Speaker recognition available)"
             status_color = "green"
         elif not DIARIZATION_AVAILABLE:
-            status_text = "⚠️ pyannote.audio nu este instalat (pyannote.audio not installed)"
+            status_text = "⚠️ pyannote.audio nu este instalat (not installed)"
             status_color = "orange"
         else:
             # HF_TOKEN missing - reference preferences
-            status_text = "⚠️ HF_TOKEN lipsește - folosiți Preferințe (HF_TOKEN missing - use Preferences)"
+            status_text = "⚠️ HF_TOKEN lipsește - folosiți ⚙️ Preferințe"
             status_color = "orange"
-        
-        # Status row with label and optional link button
-        status_row = ttk.Frame(speaker_frame)
-        status_row.grid(row=1, column=0, columnspan=4, sticky=tk.W, pady=(10, 0))
         
         # Status label
         self.speaker_status_label = ttk.Label(
-            status_row,
+            speaker_frame,
             text=status_text,
-            font=("Helvetica", 8),
+            font=("Helvetica", 9),
             foreground=status_color
         )
-        self.speaker_status_label.pack(side=tk.LEFT)
+        self.speaker_status_label.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(10, 0))
         
-        # Add clickable link to HuggingFace token page (for setting up model access)
+        # Add clickable link to preferences for HF token setup
         if PREFERENCES_AVAILABLE:
-            hf_link = ttk.Label(
-                status_row,
-                text="  |  Includeți numele a doi vorbitori pentru a activa recunoașterea vorbitorilor: ",
-                font=("Helvetica", 8),
-                foreground="gray"
-            )
-            hf_link.pack(side=tk.LEFT)
-            
             hf_link_btn = ttk.Label(
-                status_row,
-                text="NecessitățiToken HuggingFace (HF_TOKEN)",
+                speaker_frame,
+                text="Configurați token în Preferințe (Configure in Preferences) →",
                 font=("Helvetica", 8, "underline"),
                 foreground="blue",
                 cursor="hand2"
             )
-            hf_link_btn.pack(side=tk.LEFT)
+            hf_link_btn.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
             hf_link_btn.bind("<Button-1>", lambda e: self.open_preferences())
     
     def create_control_buttons(self, parent):
         """Create control buttons."""
         button_frame = ttk.Frame(parent)
-        button_frame.grid(row=4, column=0, columnspan=2, pady=(0, 10))
+        button_frame.grid(row=3, column=0, columnspan=2, pady=(0, 10))
         
         # Process button
         self.process_btn = ttk.Button(
@@ -552,7 +442,7 @@ class TranscribeROGUI:
     def create_progress_bar(self, parent):
         """Create progress bar."""
         progress_frame = ttk.Frame(parent)
-        progress_frame.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        progress_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         progress_frame.columnconfigure(0, weight=1)
         
         self.progress = ttk.Progressbar(
@@ -565,7 +455,7 @@ class TranscribeROGUI:
     def create_status_message(self, parent):
         """Create status message label."""
         status_frame = ttk.Frame(parent)
-        status_frame.grid(row=6, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        status_frame.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         
         self.status_label = ttk.Label(
             status_frame,
@@ -578,10 +468,10 @@ class TranscribeROGUI:
     def create_results_section(self, parent):
         """Create the results section with two side-by-side panels."""
         results_frame = ttk.LabelFrame(parent, text="Rezultate (Results)", padding="10")
-        results_frame.grid(row=7, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 0))
+        results_frame.grid(row=6, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 0))
         
         # Configure grid weights for resizing - give more weight to results section
-        parent.rowconfigure(7, weight=3)  # Give results section 3x weight
+        parent.rowconfigure(6, weight=3)  # Give results section 3x weight
         results_frame.columnconfigure(0, weight=1)
         results_frame.columnconfigure(1, weight=1)
         results_frame.rowconfigure(1, weight=1)
@@ -725,17 +615,30 @@ class TranscribeROGUI:
             # Initialize transcriber
             self.root.after(0, lambda: self.update_status("Se încarcă modelul Whisper... (Loading Whisper model...)", "orange"))
             
+            # Load settings from preferences
+            model_size = "base"
+            device_type = "auto"
+            force_cpu = False
+            translation_mode = "auto"
+            
+            if self.settings_manager:
+                model_size = self.settings_manager.get("transcription", "default_model_size", "base")
+                device_type = self.settings_manager.get("transcription", "default_device", "auto")
+                force_cpu = self.settings_manager.get("transcription", "force_cpu", False)
+                translation_mode = self.settings_manager.get("transcription", "default_translation_mode", "auto")
+                self.logger.info(f"Loaded settings from preferences: model={model_size}, device={device_type}, force_cpu={force_cpu}, translation={translation_mode}")
+            
             # Handle force CPU option
-            device_to_use = 'cpu' if self.force_cpu.get() else self.device_type.get()
-            if self.force_cpu.get():
+            device_to_use = 'cpu' if force_cpu else device_type
+            if force_cpu:
                 self.logger.info("Force CPU option enabled: GPU acceleration disabled")
             
             self.transcriber = AudioTranscriber(
-                model_name=self.model_size.get(),
+                model_name=model_size,
                 device=device_to_use,
                 verbose=True,
                 debug=False,
-                translation_mode=self.translation_mode.get()
+                translation_mode=translation_mode
             )
             
             if not self.processing:
@@ -856,7 +759,6 @@ class TranscribeROGUI:
                     "The timestamped transcript is displayed in the left panel.)"
                 ))
                 self.root.after(0, lambda: self.translation_status.set("Nu e necesară (deja română / Not needed)"))
-                self.root.after(0, lambda: self.translation_status_label.config(foreground="green"))
                 self.root.after(0, lambda: self.update_status(
                     f"✓ Transcriere completă! Limbă detectată: Română (fără traducere / Transcription complete! Detected language: Romanian, no translation needed)",
                     "green"
@@ -871,7 +773,6 @@ class TranscribeROGUI:
                     "orange"
                 ))
                 self.root.after(0, lambda: self.translation_status.set("În curs (In progress...)"))
-                self.root.after(0, lambda: self.translation_status_label.config(foreground="orange"))
                 
                 # Translate each segment individually to preserve timestamps and speaker labels
                 translated_segments = []
@@ -911,16 +812,6 @@ class TranscribeROGUI:
                 # Update translation status based on result
                 translation_status = getattr(self.transcriber, 'translation_status', 'Unknown')
                 self.root.after(0, lambda: self.translation_status.set(translation_status))
-                
-                # Set color based on status
-                if "Failed" in translation_status:
-                    self.root.after(0, lambda: self.translation_status_label.config(foreground="red"))
-                elif translation_status == "Online":
-                    self.root.after(0, lambda: self.translation_status_label.config(foreground="blue"))
-                elif translation_status == "Offline":
-                    self.root.after(0, lambda: self.translation_status_label.config(foreground="green"))
-                else:
-                    self.root.after(0, lambda: self.translation_status_label.config(foreground="gray"))
                 
                 # Format translated segments with timestamps and speaker labels (same format as original)
                 formatted_translation = self._format_text_with_timestamps(translated_segments, speaker_timeline)

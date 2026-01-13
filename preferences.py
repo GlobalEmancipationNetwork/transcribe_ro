@@ -50,6 +50,7 @@ class SettingsManager:
             "default_model_size": "base",
             "default_device": "auto",
             "default_translation_mode": "auto",
+            "force_cpu": False,  # Force CPU to bypass GPU issues
         },
         "ui": {
             "window_width": 1200,
@@ -228,6 +229,7 @@ class PreferencesDialog:
         self.default_model_var = tk.StringVar()
         self.default_device_var = tk.StringVar()
         self.default_translation_var = tk.StringVar()
+        self.force_cpu_var = tk.BooleanVar()
         
         # Create and show the dialog
         self._create_dialog()
@@ -396,42 +398,55 @@ class PreferencesDialog:
         # Model size
         row1 = ttk.Frame(settings_section)
         row1.pack(fill=tk.X, pady=5)
-        ttk.Label(row1, text="Model Size:", width=20).pack(side=tk.LEFT)
+        ttk.Label(row1, text="Dimensiune Model (Model Size):", width=30).pack(side=tk.LEFT)
         model_combo = ttk.Combobox(row1, textvariable=self.default_model_var,
                                    values=["tiny", "base", "small", "medium", "large"],
                                    state="readonly", width=15)
         model_combo.pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Label(row1, text="(base = balanced)", font=("Helvetica", 8),
+        ttk.Label(row1, text="(mai mare = mai precis dar mai lent)", font=("Helvetica", 8),
                   foreground="gray").pack(side=tk.LEFT)
         
         # Device
         row2 = ttk.Frame(settings_section)
         row2.pack(fill=tk.X, pady=5)
-        ttk.Label(row2, text="Device:", width=20).pack(side=tk.LEFT)
+        ttk.Label(row2, text="Dispozitiv (Device):", width=30).pack(side=tk.LEFT)
         device_combo = ttk.Combobox(row2, textvariable=self.default_device_var,
                                     values=["auto", "cpu", "mps", "cuda"],
                                     state="readonly", width=15)
         device_combo.pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Label(row2, text="(auto = best available)", font=("Helvetica", 8),
+        ttk.Label(row2, text="(auto = detectează cel mai bun)", font=("Helvetica", 8),
                   foreground="gray").pack(side=tk.LEFT)
         
-        # Translation mode
+        # Force CPU checkbox
         row3 = ttk.Frame(settings_section)
         row3.pack(fill=tk.X, pady=5)
-        ttk.Label(row3, text="Translation Mode:", width=20).pack(side=tk.LEFT)
-        trans_combo = ttk.Combobox(row3, textvariable=self.default_translation_var,
+        ttk.Checkbutton(row3, text="🔧 Forțează CPU (Force CPU - bypass GPU issues)",
+                        variable=self.force_cpu_var).pack(side=tk.LEFT)
+        
+        # Force CPU warning
+        force_cpu_warning = ttk.Frame(settings_section)
+        force_cpu_warning.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(force_cpu_warning, 
+                  text="    ⚠️ Bifați dacă întâmpinați erori MPS/GPU NaN. Revenirea automată este activată implicit.",
+                  font=("Helvetica", 8), foreground="orange").pack(side=tk.LEFT)
+        
+        # Translation mode
+        row4 = ttk.Frame(settings_section)
+        row4.pack(fill=tk.X, pady=5)
+        ttk.Label(row4, text="Mod Traducere (Translation Mode):", width=30).pack(side=tk.LEFT)
+        trans_combo = ttk.Combobox(row4, textvariable=self.default_translation_var,
                                    values=["auto", "online", "offline"],
                                    state="readonly", width=15)
         trans_combo.pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Label(row3, text="(auto = online first)", font=("Helvetica", 8),
+        ttk.Label(row4, text="(auto = online mai întâi, apoi offline)", font=("Helvetica", 8),
                   foreground="gray").pack(side=tk.LEFT)
         
         # Note about defaults
         note_frame = ttk.Frame(defaults_frame)
         note_frame.pack(fill=tk.X, pady=(10, 0))
         ttk.Label(note_frame, 
-                  text="ℹ️ Aceste setări se aplică la următoarea pornire a aplicației.\n"
-                       "    These settings will apply on next application start.",
+                  text="ℹ️ Aceste setări sunt folosite la fiecare transcriere.\n"
+                       "    These settings are used for each transcription.",
                   font=("Helvetica", 9), foreground="blue").pack(anchor=tk.W)
     
     def _create_buttons(self, parent):
@@ -470,6 +485,7 @@ class PreferencesDialog:
         self.default_model_var.set(self.settings_manager.get("transcription", "default_model_size", "base"))
         self.default_device_var.set(self.settings_manager.get("transcription", "default_device", "auto"))
         self.default_translation_var.set(self.settings_manager.get("transcription", "default_translation_mode", "auto"))
+        self.force_cpu_var.set(self.settings_manager.get("transcription", "force_cpu", False))
         
         # Update token status display
         self._update_token_status()
@@ -675,6 +691,7 @@ class PreferencesDialog:
         self.settings_manager.set("transcription", "default_model_size", self.default_model_var.get())
         self.settings_manager.set("transcription", "default_device", self.default_device_var.get())
         self.settings_manager.set("transcription", "default_translation_mode", self.default_translation_var.get())
+        self.settings_manager.set("transcription", "force_cpu", self.force_cpu_var.get())
         
         # Save to file
         if self.settings_manager.save_settings():
