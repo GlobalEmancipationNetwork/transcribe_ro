@@ -23,6 +23,14 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 from pathlib import Path
 import logging
 
+# Import preferences system
+try:
+    from preferences import SettingsManager, show_preferences_dialog
+    PREFERENCES_AVAILABLE = True
+except ImportError:
+    PREFERENCES_AVAILABLE = False
+    print("Warning: Preferences module not found. Settings dialog will be unavailable.")
+
 # Set MPS-specific environment variables for stability
 # These help prevent NaN issues on Apple Silicon GPUs
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
@@ -52,6 +60,12 @@ class TranscribeROGUI:
         self.root = root
         self.root.title("Transcribe RO - Transcriere Audio și Traducere (Audio Transcription & Translation)")
         self.root.geometry("1200x800")
+        
+        # Initialize settings manager and load saved settings
+        self.settings_manager = None
+        if PREFERENCES_AVAILABLE:
+            self.settings_manager = SettingsManager()
+            self._apply_saved_settings()
         
         # Configure window icon (if available)
         try:
@@ -122,6 +136,55 @@ class TranscribeROGUI:
         y = (self.root.winfo_screenheight() // 2) - (height // 2)
         self.root.geometry(f'{width}x{height}+{x}+{y}')
     
+    def _apply_saved_settings(self):
+        """Apply saved settings on application startup."""
+        if not self.settings_manager:
+            return
+        
+        # Apply HF_TOKEN to environment variable if auto-load is enabled
+        auto_load = self.settings_manager.get("general", "auto_load_token", True)
+        if auto_load:
+            if self.settings_manager.apply_hf_token_to_env():
+                self.logger.info("HF_TOKEN loaded from saved preferences")
+    
+    def open_preferences(self):
+        """Open the preferences dialog."""
+        if not PREFERENCES_AVAILABLE or not self.settings_manager:
+            messagebox.showerror("Error", "Preferences module not available.")
+            return
+        
+        show_preferences_dialog(
+            self.root,
+            self.settings_manager,
+            on_settings_saved=self._on_settings_saved
+        )
+    
+    def _on_settings_saved(self):
+        """Callback when settings are saved - update UI accordingly."""
+        # Update speaker recognition status
+        self._update_speaker_status()
+    
+    def _update_speaker_status(self):
+        """Update the speaker recognition status indicator."""
+        if not hasattr(self, 'speaker_status_label'):
+            return
+        
+        # Re-check diarization requirements (which will now include the new HF_TOKEN)
+        is_available, error_msg = check_diarization_requirements()
+        
+        if is_available:
+            status_text = "✓ Recunoașterea vorbitorilor este disponibilă (Speaker recognition is available)"
+            status_color = "green"
+        elif not DIARIZATION_AVAILABLE:
+            status_text = "⚠️ pyannote.audio nu este instalat (pyannote.audio not installed)"
+            status_color = "orange"
+        else:
+            # HF_TOKEN missing
+            status_text = "⚠️ HF_TOKEN lipsește - folosiți Preferințe (HF_TOKEN missing - use Preferences)"
+            status_color = "orange"
+        
+        self.speaker_status_label.config(text=status_text, foreground=status_color)
+    
     def create_widgets(self):
         """Create all GUI widgets."""
         # Main container with padding
@@ -162,20 +225,35 @@ class TranscribeROGUI:
         """Create the header section."""
         header_frame = ttk.Frame(parent)
         header_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        header_frame.columnconfigure(0, weight=1)
+        
+        # Left side: Title and subtitle
+        title_frame = ttk.Frame(header_frame)
+        title_frame.grid(row=0, column=0, sticky=tk.W)
         
         title_label = ttk.Label(
-            header_frame,
+            title_frame,
             text="🎙️ Transcribe RO",
             font=("Helvetica", 20, "bold")
         )
         title_label.grid(row=0, column=0, sticky=tk.W)
         
         subtitle_label = ttk.Label(
-            header_frame,
+            title_frame,
             text="Transcriere Audio și Traducere în Română (Audio Transcription & Translation to Romanian)",
             font=("Helvetica", 10)
         )
         subtitle_label.grid(row=1, column=0, sticky=tk.W)
+        
+        # Right side: Settings button
+        if PREFERENCES_AVAILABLE:
+            settings_btn = ttk.Button(
+                header_frame,
+                text="⚙️ Preferințe (Settings)",
+                command=self.open_preferences,
+                width=22
+            )
+            settings_btn.grid(row=0, column=1, sticky=tk.E, padx=(10, 0))
     
     def create_file_selection(self, parent):
         """Create the file selection section."""
@@ -381,18 +459,42 @@ class TranscribeROGUI:
             status_text = "⚠️ pyannote.audio nu este instalat (pyannote.audio not installed)"
             status_color = "orange"
         else:
-            # HF_TOKEN missing
-            status_text = "⚠️ HF_TOKEN lipsește - setați variabila de mediu (HF_TOKEN missing - set environment variable)"
+            # HF_TOKEN missing - reference preferences
+            status_text = "⚠️ HF_TOKEN lipsește - folosiți Preferințe (HF_TOKEN missing - use Preferences)"
             status_color = "orange"
+        
+        # Status row with label and optional link button
+        status_row = ttk.Frame(speaker_frame)
+        status_row.grid(row=1, column=0, columnspan=4, sticky=tk.W, pady=(10, 0))
         
         # Status label
         self.speaker_status_label = ttk.Label(
-            speaker_frame,
+            status_row,
             text=status_text,
             font=("Helvetica", 8),
             foreground=status_color
         )
-        self.speaker_status_label.grid(row=1, column=0, columnspan=4, sticky=tk.W, pady=(10, 0))
+        self.speaker_status_label.pack(side=tk.LEFT)
+        
+        # Add clickable link to HuggingFace token page (for setting up model access)
+        if PREFERENCES_AVAILABLE:
+            hf_link = ttk.Label(
+                status_row,
+                text="  |  Includeți numele a doi vorbitori pentru a activa recunoașterea vorbitorilor: ",
+                font=("Helvetica", 8),
+                foreground="gray"
+            )
+            hf_link.pack(side=tk.LEFT)
+            
+            hf_link_btn = ttk.Label(
+                status_row,
+                text="NecessitățiToken HuggingFace (HF_TOKEN)",
+                font=("Helvetica", 8, "underline"),
+                foreground="blue",
+                cursor="hand2"
+            )
+            hf_link_btn.pack(side=tk.LEFT)
+            hf_link_btn.bind("<Button-1>", lambda e: self.open_preferences())
     
     def create_control_buttons(self, parent):
         """Create control buttons."""
