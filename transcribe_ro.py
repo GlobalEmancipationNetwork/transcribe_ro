@@ -361,6 +361,25 @@ def preload_model(model_name, debug=False):
         return False
 
 
+def check_diarization_requirements():
+    """
+    Check if speaker diarization requirements are met.
+    
+    Returns:
+        tuple: (is_available, error_message)
+            - is_available: True if diarization can be performed
+            - error_message: None if available, otherwise descriptive error string
+    """
+    if not DIARIZATION_AVAILABLE:
+        return False, "pyannote.audio not installed. Install with: pip install pyannote.audio"
+    
+    hf_token = os.environ.get('HF_TOKEN') or os.environ.get('HUGGING_FACE_TOKEN')
+    if not hf_token:
+        return False, "HF_TOKEN environment variable not set. Get your token at: https://huggingface.co/settings/tokens"
+    
+    return True, None
+
+
 def perform_speaker_diarization(audio_path, speaker_names=None, debug=False):
     """
     Perform speaker diarization on an audio file.
@@ -371,24 +390,35 @@ def perform_speaker_diarization(audio_path, speaker_names=None, debug=False):
         debug: Enable debug output
     
     Returns:
-        Dictionary mapping time ranges to speaker labels, or None if unavailable
+        tuple: (speaker_timeline, status_message)
+            - speaker_timeline: Dictionary mapping time ranges to speaker labels, or None if failed
+            - status_message: String describing the result or error
     """
-    if not DIARIZATION_AVAILABLE:
-        logger.error("Speaker diarization not available. Install with: pip install pyannote.audio")
-        return None
+    if debug:
+        logger.debug("="*80)
+        logger.debug("SPEAKER DIARIZATION START")
+        logger.debug("="*80)
+        logger.debug(f"Audio path: {audio_path}")
+        logger.debug(f"Speaker names: {speaker_names}")
+    
+    # Check requirements first
+    is_available, error_msg = check_diarization_requirements()
+    if not is_available:
+        logger.error(f"Speaker diarization unavailable: {error_msg}")
+        if debug:
+            logger.debug(f"DIARIZATION_AVAILABLE: {DIARIZATION_AVAILABLE}")
+            hf_token = os.environ.get('HF_TOKEN') or os.environ.get('HUGGING_FACE_TOKEN')
+            logger.debug(f"HF_TOKEN present: {bool(hf_token)}")
+        return None, error_msg
     
     try:
         logger.info("Performing speaker diarization...")
-        logger.info("Note: This requires a HuggingFace token for pyannote.audio models")
-        logger.info("Set HF_TOKEN environment variable or accept terms at: https://huggingface.co/pyannote/speaker-diarization-community-1")
+        if debug:
+            logger.debug("Loading pyannote speaker-diarization-community-1 model...")
+            import time
+            start_time = time.time()
         
-        # Try to get HuggingFace token from environment
         hf_token = os.environ.get('HF_TOKEN') or os.environ.get('HUGGING_FACE_TOKEN')
-        
-        if not hf_token:
-            logger.error("HuggingFace token not found. Please set HF_TOKEN environment variable.")
-            logger.error("Get your token at: https://huggingface.co/settings/tokens")
-            return None
         
         # Load diarization pipeline (using community-1 model - recommended open-source model)
         pipeline = Pipeline.from_pretrained(
@@ -396,17 +426,34 @@ def perform_speaker_diarization(audio_path, speaker_names=None, debug=False):
             use_auth_token=hf_token
         )
         
+        if debug:
+            logger.debug(f"Model loaded in {time.time() - start_time:.2f}s")
+            logger.debug("Running diarization pipeline...")
+            start_time = time.time()
+        
         # Run diarization
         diarization = pipeline(audio_path)
         
+        if debug:
+            logger.debug(f"Diarization completed in {time.time() - start_time:.2f}s")
+        
         # Map speaker labels to custom names if provided
         speaker_map = {}
-        if speaker_names and len(speaker_names) == 2:
-            unique_speakers = sorted(set(turn.label for turn in diarization.itertracks(yield_label=True)))
-            if len(unique_speakers) >= 2:
+        unique_speakers = sorted(set(turn[2] for turn in diarization.itertracks(yield_label=True)))
+        num_speakers_found = len(unique_speakers)
+        
+        if debug:
+            logger.debug(f"Unique speakers detected: {unique_speakers}")
+            logger.debug(f"Number of speakers found: {num_speakers_found}")
+        
+        if speaker_names and len(speaker_names) >= 2:
+            if num_speakers_found >= 2:
                 speaker_map[unique_speakers[0]] = speaker_names[0]
                 speaker_map[unique_speakers[1]] = speaker_names[1]
                 logger.info(f"Mapping speakers: {unique_speakers[0]} -> {speaker_names[0]}, {unique_speakers[1]} -> {speaker_names[1]}")
+            elif num_speakers_found == 1:
+                speaker_map[unique_speakers[0]] = speaker_names[0]
+                logger.warning(f"Only 1 speaker detected, mapping to: {speaker_names[0]}")
         
         # Convert to dictionary format
         speaker_timeline = {}
@@ -414,15 +461,26 @@ def perform_speaker_diarization(audio_path, speaker_names=None, debug=False):
             mapped_speaker = speaker_map.get(speaker, speaker)
             speaker_timeline[(turn.start, turn.end)] = mapped_speaker
         
-        logger.info(f"✓ Speaker diarization complete: {len(speaker_timeline)} segments")
-        return speaker_timeline
+        num_segments = len(speaker_timeline)
+        status_msg = f"Speaker diarization complete: {num_speakers_found} speakers, {num_segments} segments"
+        logger.info(f"✓ {status_msg}")
+        
+        if debug:
+            logger.debug(f"Speaker timeline entries: {num_segments}")
+            logger.debug("First 5 entries:")
+            for i, ((start, end), spk) in enumerate(list(speaker_timeline.items())[:5]):
+                logger.debug(f"  [{start:.2f} -> {end:.2f}] {spk}")
+        
+        return speaker_timeline, status_msg
         
     except Exception as e:
-        logger.error(f"Speaker diarization failed: {e}")
+        error_msg = f"Speaker diarization failed: {str(e)}"
+        logger.error(error_msg)
         if debug:
             import traceback
+            logger.debug("Full traceback:")
             logger.debug(traceback.format_exc())
-        return None
+        return None, error_msg
 
 
 def get_speaker_for_timestamp(speaker_timeline, timestamp):

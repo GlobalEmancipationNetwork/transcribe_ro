@@ -30,7 +30,14 @@ os.environ['PYTORCH_MPS_HIGH_WATERMARK_RATIO'] = '0.0'
 
 # Import the AudioTranscriber class from transcribe_ro
 try:
-    from transcribe_ro import AudioTranscriber, setup_logging
+    from transcribe_ro import (
+        AudioTranscriber, 
+        setup_logging, 
+        perform_speaker_diarization, 
+        get_speaker_for_timestamp,
+        check_diarization_requirements,
+        DIARIZATION_AVAILABLE
+    )
 except ImportError:
     print("Error: Could not import transcribe_ro module.")
     print("Make sure transcribe_ro.py is in the same directory.")
@@ -364,14 +371,28 @@ class TranscribeROGUI:
         )
         speaker2_entry.grid(row=0, column=3, sticky=(tk.W, tk.E))
         
-        # Info label
-        info_label = ttk.Label(
+        # Check diarization availability and show appropriate status
+        is_available, error_msg = check_diarization_requirements()
+        
+        if is_available:
+            status_text = "✓ Recunoașterea vorbitorilor este disponibilă (Speaker recognition is available)"
+            status_color = "green"
+        elif not DIARIZATION_AVAILABLE:
+            status_text = "⚠️ pyannote.audio nu este instalat (pyannote.audio not installed)"
+            status_color = "orange"
+        else:
+            # HF_TOKEN missing
+            status_text = "⚠️ HF_TOKEN lipsește - setați variabila de mediu (HF_TOKEN missing - set environment variable)"
+            status_color = "orange"
+        
+        # Status label
+        self.speaker_status_label = ttk.Label(
             speaker_frame,
-            text="ℹ️ Introduceți numele a doi vorbitori pentru a activa diarizarea vorbitorilor. Necesită token HuggingFace (HF_TOKEN).",
+            text=status_text,
             font=("Helvetica", 8),
-            foreground="blue"
+            foreground=status_color
         )
-        info_label.grid(row=1, column=0, columnspan=4, sticky=tk.W, pady=(10, 0))
+        self.speaker_status_label.grid(row=1, column=0, columnspan=4, sticky=tk.W, pady=(10, 0))
     
     def create_control_buttons(self, parent):
         """Create control buttons."""
@@ -606,30 +627,86 @@ class TranscribeROGUI:
             
             # Perform speaker diarization if both speaker names are provided
             speaker_timeline = None
+            diarization_status = None
             speaker1 = self.speaker1_name.get().strip()
             speaker2 = self.speaker2_name.get().strip()
             
             if speaker1 and speaker2:
-                self.root.after(0, lambda: self.update_status("Se efectuează diarizarea vorbitorilor... (Performing speaker diarization...)", "orange"))
+                self.logger.info(f"Speaker names provided: '{speaker1}' and '{speaker2}'")
                 
-                # Import speaker diarization functions
-                from transcribe_ro import perform_speaker_diarization, get_speaker_for_timestamp
+                # Pre-check diarization requirements before attempting
+                is_available, prereq_error = check_diarization_requirements()
                 
-                speaker_timeline = perform_speaker_diarization(
-                    self.selected_file.get(),
-                    speaker_names=[speaker1, speaker2],
-                    debug=False
-                )
-                
-                # Add speaker labels to segments
-                if speaker_timeline:
-                    for segment in segments:
-                        segment_mid = (segment['start'] + segment['end']) / 2
-                        speaker = get_speaker_for_timestamp(speaker_timeline, segment_mid)
-                        segment['speaker'] = speaker if speaker else "Unknown"
-                    self.logger.info(f"✓ Speaker diarization complete with {len(speaker_timeline)} segments")
+                if not is_available:
+                    # Show warning to user about missing requirements
+                    self.logger.warning(f"Speaker diarization unavailable: {prereq_error}")
+                    diarization_status = prereq_error
+                    
+                    # Update GUI with clear error message
+                    error_display = f"⚠️ Speaker recognition unavailable: {prereq_error}"
+                    self.root.after(0, lambda msg=error_display: self.update_status(msg, "orange"))
+                    
+                    # Show message box with instructions
+                    if "HF_TOKEN" in prereq_error:
+                        self.root.after(0, lambda: messagebox.showwarning(
+                            "Speaker Recognition - Token Required",
+                            "Speaker recognition requires a HuggingFace token.\n\n"
+                            "To enable speaker recognition:\n"
+                            "1. Create a free account at huggingface.co\n"
+                            "2. Get your token at: https://huggingface.co/settings/tokens\n"
+                            "3. Set environment variable: export HF_TOKEN=your_token\n"
+                            "4. Restart the application\n\n"
+                            "Transcription will continue without speaker labels."
+                        ))
+                    elif "pyannote" in prereq_error:
+                        self.root.after(0, lambda: messagebox.showwarning(
+                            "Speaker Recognition - Not Installed",
+                            "Speaker recognition requires pyannote.audio.\n\n"
+                            "Install with: pip install pyannote.audio\n\n"
+                            "Transcription will continue without speaker labels."
+                        ))
                 else:
-                    self.logger.warning("Speaker diarization failed or returned no results")
+                    # Requirements met, proceed with diarization
+                    self.root.after(0, lambda: self.update_status(
+                        "🎤 Se efectuează diarizarea vorbitorilor... (Performing speaker diarization...)", 
+                        "orange"
+                    ))
+                    self.logger.info("Starting speaker diarization...")
+                    
+                    # Call diarization with debug enabled to get detailed logs
+                    speaker_timeline, diarization_status = perform_speaker_diarization(
+                        self.selected_file.get(),
+                        speaker_names=[speaker1, speaker2],
+                        debug=True  # Enable debug for detailed logging
+                    )
+                    
+                    # Add speaker labels to segments if diarization succeeded
+                    if speaker_timeline:
+                        self.logger.info(f"✓ {diarization_status}")
+                        self.root.after(0, lambda msg=f"✓ {diarization_status}": self.update_status(msg, "green"))
+                        
+                        for segment in segments:
+                            segment_mid = (segment['start'] + segment['end']) / 2
+                            speaker = get_speaker_for_timestamp(speaker_timeline, segment_mid)
+                            segment['speaker'] = speaker if speaker else "Unknown"
+                        
+                        self.logger.info(f"Speaker labels assigned to {len(segments)} segments")
+                    else:
+                        # Diarization failed after passing pre-checks
+                        self.logger.warning(f"Speaker diarization failed: {diarization_status}")
+                        self.root.after(0, lambda msg=f"⚠️ {diarization_status}": self.update_status(msg, "orange"))
+                        self.root.after(0, lambda: messagebox.showwarning(
+                            "Speaker Recognition Failed",
+                            f"Speaker recognition encountered an error:\n\n{diarization_status}\n\n"
+                            "Transcription will continue without speaker labels."
+                        ))
+            elif speaker1 or speaker2:
+                # Only one speaker name provided
+                self.logger.info("Only one speaker name provided - need both for diarization")
+                self.root.after(0, lambda: self.update_status(
+                    "ℹ️ Ambele nume de vorbitori sunt necesare pentru diarizare (Both speaker names required)", 
+                    "blue"
+                ))
             
             # Format original transcript with timestamps and speaker labels
             formatted_transcript = self._format_text_with_timestamps(segments, speaker_timeline)
