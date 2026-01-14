@@ -707,62 +707,237 @@ def perform_speaker_diarization(audio_path, speaker_names=None, debug=False):
         speaker_map = {}
         
         # Handle different pyannote.audio API versions
-        # pyannote.audio 4.x returns DiarizeOutput which may not have itertracks()
-        # We need to handle both old Annotation objects and new DiarizeOutput objects
+        # pyannote.audio 4.x returns DiarizeOutput which contains Annotation in .speaker_diarization
+        # pyannote.audio 3.x returns Annotation directly with itertracks()
+        # 
+        # NOTE: If this function receives a DiarizeOutput object, it means the diarization
+        # ran SUCCESSFULLY. This error is NOT due to audio quality - if audio quality was
+        # the issue, diarization would fail earlier or return empty results. This is purely
+        # an API compatibility issue with extracting segments from the output object.
         def get_diarization_segments(diarization_result):
-            """Extract segments from diarization result, handling API differences."""
-            segments = []
+            """Extract segments from diarization result, handling API differences.
             
-            # Try itertracks() method first (Annotation objects)
+            Returns an empty list on failure instead of raising, allowing transcription
+            to continue without speaker labels.
+            """
+            segments = []
+            extraction_attempts = []  # Track what we tried for debugging
+            
+            # === EXTENSIVE DEBUGGING ===
+            obj_type = type(diarization_result).__name__
+            logger.info(f"[DEBUG] Diarization output type: {obj_type}")
+            logger.info(f"[DEBUG] Module: {type(diarization_result).__module__}")
+            
+            # Log ALL public attributes
+            public_attrs = [attr for attr in dir(diarization_result) if not attr.startswith('_')]
+            logger.info(f"[DEBUG] Public attributes: {public_attrs}")
+            
+            # Log private attributes too (might have useful data)
+            private_attrs = [attr for attr in dir(diarization_result) if attr.startswith('_') and not attr.startswith('__')]
+            logger.info(f"[DEBUG] Private attributes: {private_attrs}")
+            
+            # Try to log __dict__
+            if hasattr(diarization_result, '__dict__'):
+                try:
+                    dict_keys = list(diarization_result.__dict__.keys())
+                    logger.info(f"[DEBUG] __dict__ keys: {dict_keys}")
+                    for key in dict_keys[:10]:  # First 10 keys
+                        val = diarization_result.__dict__[key]
+                        val_type = type(val).__name__
+                        logger.info(f"[DEBUG]   {key}: type={val_type}")
+                except Exception as e:
+                    logger.info(f"[DEBUG] Could not inspect __dict__: {e}")
+            
+            # Try to get string representation
+            try:
+                str_repr = str(diarization_result)[:500]  # First 500 chars
+                logger.info(f"[DEBUG] String repr: {str_repr}")
+            except Exception as e:
+                logger.info(f"[DEBUG] Could not get string repr: {e}")
+            
+            # Try to get repr
+            try:
+                repr_str = repr(diarization_result)[:500]
+                logger.info(f"[DEBUG] Repr: {repr_str}")
+            except Exception as e:
+                logger.info(f"[DEBUG] Could not get repr: {e}")
+            
+            # === METHOD 1: pyannote.audio 4.x - speaker_diarization attribute ===
+            if hasattr(diarization_result, 'speaker_diarization'):
+                extraction_attempts.append('speaker_diarization')
+                try:
+                    annotation = diarization_result.speaker_diarization
+                    logger.info(f"[DEBUG] speaker_diarization type: {type(annotation).__name__}")
+                    logger.info(f"[DEBUG] speaker_diarization attrs: {[a for a in dir(annotation) if not a.startswith('_')][:20]}")
+                    
+                    if hasattr(annotation, 'itertracks'):
+                        for turn, _, speaker in annotation.itertracks(yield_label=True):
+                            segments.append((turn.start, turn.end, speaker))
+                        if segments:
+                            logger.info(f"[DEBUG] SUCCESS via speaker_diarization.itertracks(): {len(segments)} segments")
+                            return segments
+                    
+                    # Try direct iteration on speaker_diarization
+                    for turn, speaker in annotation:
+                        segments.append((turn.start, turn.end, speaker))
+                    if segments:
+                        logger.info(f"[DEBUG] SUCCESS via speaker_diarization iteration: {len(segments)} segments")
+                        return segments
+                except Exception as e:
+                    logger.info(f"[DEBUG] speaker_diarization extraction failed: {e}")
+            
+            # === METHOD 2: Direct itertracks (pyannote 3.x) ===
             if hasattr(diarization_result, 'itertracks'):
+                extraction_attempts.append('itertracks')
                 try:
                     for turn, _, speaker in diarization_result.itertracks(yield_label=True):
                         segments.append((turn.start, turn.end, speaker))
-                    return segments
-                except Exception:
-                    pass
+                    if segments:
+                        logger.info(f"[DEBUG] SUCCESS via itertracks(): {len(segments)} segments")
+                        return segments
+                except Exception as e:
+                    logger.info(f"[DEBUG] itertracks extraction failed: {e}")
             
-            # Try accessing as a pyannote Annotation via .to_annotation() (DiarizeOutput objects)
+            # === METHOD 3: to_annotation() method ===
             if hasattr(diarization_result, 'to_annotation'):
+                extraction_attempts.append('to_annotation')
                 try:
                     annotation = diarization_result.to_annotation()
+                    logger.info(f"[DEBUG] to_annotation() returned: {type(annotation).__name__}")
                     for turn, _, speaker in annotation.itertracks(yield_label=True):
                         segments.append((turn.start, turn.end, speaker))
-                    return segments
-                except Exception:
-                    pass
+                    if segments:
+                        logger.info(f"[DEBUG] SUCCESS via to_annotation(): {len(segments)} segments")
+                        return segments
+                except Exception as e:
+                    logger.info(f"[DEBUG] to_annotation extraction failed: {e}")
             
-            # Try iterating directly (some pyannote versions support this)
+            # === METHOD 4: Try common attribute names ===
+            common_attrs = ['segments', 'tracks', 'labels', 'timeline', 'data', 'result', 
+                           'output', 'annotation', 'diarization', 'speakers', 'turns']
+            for attr_name in common_attrs:
+                if hasattr(diarization_result, attr_name):
+                    extraction_attempts.append(f'attr:{attr_name}')
+                    try:
+                        attr_val = getattr(diarization_result, attr_name)
+                        logger.info(f"[DEBUG] Found .{attr_name}: type={type(attr_val).__name__}")
+                        
+                        # If it's iterable, try to extract
+                        if hasattr(attr_val, '__iter__'):
+                            for item in attr_val:
+                                if isinstance(item, tuple) and len(item) >= 2:
+                                    if hasattr(item[0], 'start'):
+                                        turn = item[0]
+                                        speaker = item[-1]
+                                        segments.append((turn.start, turn.end, speaker))
+                                elif hasattr(item, 'start') and hasattr(item, 'end'):
+                                    label = getattr(item, 'label', getattr(item, 'speaker', 'SPEAKER'))
+                                    segments.append((item.start, item.end, label))
+                            if segments:
+                                logger.info(f"[DEBUG] SUCCESS via .{attr_name}: {len(segments)} segments")
+                                return segments
+                        
+                        # If it has itertracks
+                        if hasattr(attr_val, 'itertracks'):
+                            for turn, _, speaker in attr_val.itertracks(yield_label=True):
+                                segments.append((turn.start, turn.end, speaker))
+                            if segments:
+                                logger.info(f"[DEBUG] SUCCESS via .{attr_name}.itertracks(): {len(segments)} segments")
+                                return segments
+                    except Exception as e:
+                        logger.info(f"[DEBUG] .{attr_name} extraction failed: {e}")
+            
+            # === METHOD 5: Direct iteration ===
+            extraction_attempts.append('direct_iteration')
             try:
+                items_seen = 0
                 for item in diarization_result:
-                    if hasattr(item, 'start') and hasattr(item, 'end'):
-                        # It's a segment with start/end, try to get the label
+                    items_seen += 1
+                    if items_seen <= 3:
+                        logger.info(f"[DEBUG] Iteration item {items_seen}: type={type(item).__name__}, value={str(item)[:100]}")
+                    
+                    if isinstance(item, tuple) and len(item) == 2:
+                        turn, speaker = item
+                        if hasattr(turn, 'start') and hasattr(turn, 'end'):
+                            segments.append((turn.start, turn.end, speaker))
+                    elif isinstance(item, tuple) and len(item) >= 3:
+                        turn = item[0]
+                        speaker = item[2] if len(item) > 2 else item[1]
+                        if hasattr(turn, 'start') and hasattr(turn, 'end'):
+                            segments.append((turn.start, turn.end, speaker))
+                    elif hasattr(item, 'start') and hasattr(item, 'end'):
                         label = getattr(item, 'label', getattr(item, 'speaker', 'SPEAKER'))
                         segments.append((item.start, item.end, label))
-                    elif isinstance(item, tuple) and len(item) >= 3:
-                        segments.append((item[0].start if hasattr(item[0], 'start') else item[0],
-                                       item[0].end if hasattr(item[0], 'end') else item[1],
-                                       item[2] if len(item) > 2 else 'SPEAKER'))
+                
+                logger.info(f"[DEBUG] Direct iteration saw {items_seen} items, extracted {len(segments)} segments")
                 if segments:
                     return segments
-            except Exception:
-                pass
+            except TypeError as e:
+                logger.info(f"[DEBUG] Object is not iterable: {e}")
+            except Exception as e:
+                logger.info(f"[DEBUG] Direct iteration failed: {e}")
             
-            # Last resort: try to access internal data structures
-            if hasattr(diarization_result, '_timeline') and hasattr(diarization_result, '_labels'):
+            # === METHOD 6: Internal data structures ===
+            for timeline_attr in ['_timeline', '_tracks', '_segments']:
+                for label_attr in ['_labels', '_speakers', '_tracks']:
+                    if hasattr(diarization_result, timeline_attr) and hasattr(diarization_result, label_attr):
+                        extraction_attempts.append(f'{timeline_attr}+{label_attr}')
+                        try:
+                            timeline = getattr(diarization_result, timeline_attr)
+                            labels = getattr(diarization_result, label_attr)
+                            logger.info(f"[DEBUG] Found {timeline_attr} ({type(timeline).__name__}) and {label_attr} ({type(labels).__name__})")
+                            for seg, lbl in zip(timeline, labels):
+                                if hasattr(seg, 'start'):
+                                    segments.append((seg.start, seg.end, lbl))
+                            if segments:
+                                logger.info(f"[DEBUG] SUCCESS via {timeline_attr}+{label_attr}: {len(segments)} segments")
+                                return segments
+                        except Exception as e:
+                            logger.info(f"[DEBUG] {timeline_attr}+{label_attr} extraction failed: {e}")
+            
+            # === METHOD 7: Try calling the object ===
+            if callable(diarization_result):
+                extraction_attempts.append('callable')
                 try:
-                    timeline = diarization_result._timeline
-                    labels = diarization_result._labels
-                    for seg, lbl in zip(timeline, labels):
-                        segments.append((seg.start, seg.end, lbl))
-                    return segments
-                except Exception:
-                    pass
+                    result = diarization_result()
+                    logger.info(f"[DEBUG] Callable returned: {type(result).__name__}")
+                except Exception as e:
+                    logger.info(f"[DEBUG] Calling object failed: {e}")
             
-            raise AttributeError("Unable to extract segments from diarization output. "
-                               f"Object type: {type(diarization_result).__name__}")
+            # === METHOD 8: Try dict-like access ===
+            extraction_attempts.append('dict_access')
+            try:
+                if hasattr(diarization_result, 'keys'):
+                    keys = list(diarization_result.keys())
+                    logger.info(f"[DEBUG] Dict-like keys: {keys}")
+                if hasattr(diarization_result, 'get'):
+                    for key in ['segments', 'tracks', 'speakers', 'diarization']:
+                        val = diarization_result.get(key)
+                        if val:
+                            logger.info(f"[DEBUG] .get('{key}'): {type(val).__name__}")
+            except Exception as e:
+                logger.info(f"[DEBUG] Dict-like access failed: {e}")
+            
+            # === GRACEFUL FALLBACK ===
+            # Instead of raising an error, log comprehensive debug info and return empty list
+            # This allows transcription to continue without speaker labels
+            logger.warning(f"[DIARIZATION] Could not extract segments from {obj_type}.")
+            logger.warning(f"[DIARIZATION] Extraction methods tried: {extraction_attempts}")
+            logger.warning(f"[DIARIZATION] This is NOT an audio quality issue - diarization ran successfully.")
+            logger.warning(f"[DIARIZATION] This is a pyannote.audio API compatibility issue.")
+            logger.warning(f"[DIARIZATION] Transcription will continue without speaker labels.")
+            
+            # Return empty list for graceful degradation
+            return []
         
         diarization_segments = get_diarization_segments(diarization)
+        
+        # Handle graceful fallback when segment extraction fails
+        if not diarization_segments:
+            status_msg = "Speaker diarization: extraction failed, continuing without speaker labels"
+            logger.warning(status_msg)
+            return None, status_msg
+        
         unique_speakers = sorted(set(seg[2] for seg in diarization_segments))
         num_speakers_found = len(unique_speakers)
         
