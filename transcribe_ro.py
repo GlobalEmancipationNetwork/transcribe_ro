@@ -705,7 +705,65 @@ def perform_speaker_diarization(audio_path, speaker_names=None, debug=False):
         
         # Map speaker labels to custom names if provided
         speaker_map = {}
-        unique_speakers = sorted(set(turn[2] for turn in diarization.itertracks(yield_label=True)))
+        
+        # Handle different pyannote.audio API versions
+        # pyannote.audio 4.x returns DiarizeOutput which may not have itertracks()
+        # We need to handle both old Annotation objects and new DiarizeOutput objects
+        def get_diarization_segments(diarization_result):
+            """Extract segments from diarization result, handling API differences."""
+            segments = []
+            
+            # Try itertracks() method first (Annotation objects)
+            if hasattr(diarization_result, 'itertracks'):
+                try:
+                    for turn, _, speaker in diarization_result.itertracks(yield_label=True):
+                        segments.append((turn.start, turn.end, speaker))
+                    return segments
+                except Exception:
+                    pass
+            
+            # Try accessing as a pyannote Annotation via .to_annotation() (DiarizeOutput objects)
+            if hasattr(diarization_result, 'to_annotation'):
+                try:
+                    annotation = diarization_result.to_annotation()
+                    for turn, _, speaker in annotation.itertracks(yield_label=True):
+                        segments.append((turn.start, turn.end, speaker))
+                    return segments
+                except Exception:
+                    pass
+            
+            # Try iterating directly (some pyannote versions support this)
+            try:
+                for item in diarization_result:
+                    if hasattr(item, 'start') and hasattr(item, 'end'):
+                        # It's a segment with start/end, try to get the label
+                        label = getattr(item, 'label', getattr(item, 'speaker', 'SPEAKER'))
+                        segments.append((item.start, item.end, label))
+                    elif isinstance(item, tuple) and len(item) >= 3:
+                        segments.append((item[0].start if hasattr(item[0], 'start') else item[0],
+                                       item[0].end if hasattr(item[0], 'end') else item[1],
+                                       item[2] if len(item) > 2 else 'SPEAKER'))
+                if segments:
+                    return segments
+            except Exception:
+                pass
+            
+            # Last resort: try to access internal data structures
+            if hasattr(diarization_result, '_timeline') and hasattr(diarization_result, '_labels'):
+                try:
+                    timeline = diarization_result._timeline
+                    labels = diarization_result._labels
+                    for seg, lbl in zip(timeline, labels):
+                        segments.append((seg.start, seg.end, lbl))
+                    return segments
+                except Exception:
+                    pass
+            
+            raise AttributeError("Unable to extract segments from diarization output. "
+                               f"Object type: {type(diarization_result).__name__}")
+        
+        diarization_segments = get_diarization_segments(diarization)
+        unique_speakers = sorted(set(seg[2] for seg in diarization_segments))
         num_speakers_found = len(unique_speakers)
         
         if debug:
@@ -723,9 +781,9 @@ def perform_speaker_diarization(audio_path, speaker_names=None, debug=False):
         
         # Convert to dictionary format
         speaker_timeline = {}
-        for turn, _, speaker in diarization.itertracks(yield_label=True):
+        for start, end, speaker in diarization_segments:
             mapped_speaker = speaker_map.get(speaker, speaker)
-            speaker_timeline[(turn.start, turn.end)] = mapped_speaker
+            speaker_timeline[(start, end)] = mapped_speaker
         
         num_segments = len(speaker_timeline)
         status_msg = f"Speaker diarization complete: {num_speakers_found} speakers, {num_segments} segments"
