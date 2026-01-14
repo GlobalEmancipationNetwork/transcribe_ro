@@ -20,8 +20,13 @@ protobuf>=3.20.0
 # Audio processing
 ffmpeg-python>=0.2.0
 
+# Audio loading libraries (used to avoid torchcodec/AudioDecoder issues with pyannote)
+librosa>=0.10.0
+soundfile>=0.12.0
+
 # Additional utilities
 numpy>=1.24.0
+scipy>=1.10.0
 
 # Speaker diarization (optional - for --speakers feature)
 # Uses the recommended community-1 open-source model
