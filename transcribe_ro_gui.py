@@ -44,7 +44,13 @@ try:
         perform_speaker_diarization, 
         get_speaker_for_timestamp,
         check_diarization_requirements,
-        DIARIZATION_AVAILABLE
+        DIARIZATION_AVAILABLE,
+        # Video support
+        is_video_file,
+        is_audio_file,
+        extract_audio_from_video,
+        VIDEO_EXTENSIONS,
+        AUDIO_EXTENSIONS
     )
 except ImportError:
     print("Error: Could not import transcribe_ro module.")
@@ -110,13 +116,14 @@ class TranscribeROGUI:
             "tr": "Turkish (Türkçe)"
         }
         
-        # Supported audio formats
+        # Supported audio and video formats
         self.audio_formats = [
+            ("Audio/Video Files", "*.mp3 *.wav *.m4a *.flac *.ogg *.wma *.aac *.opus *.mp4 *.avi *.mkv *.mov *.wmv *.webm *.m4v"),
             ("Audio Files", "*.mp3 *.wav *.m4a *.flac *.ogg *.wma *.aac *.opus"),
+            ("Video Files", "*.mp4 *.avi *.mkv *.mov *.wmv *.webm *.m4v *.mpeg *.mpg"),
             ("MP3 Files", "*.mp3"),
             ("WAV Files", "*.wav"),
-            ("M4A Files", "*.m4a"),
-            ("FLAC Files", "*.flac"),
+            ("MP4 Files", "*.mp4"),
             ("All Files", "*.*")
         ]
         

@@ -186,6 +186,120 @@ except Exception as e:
     Pipeline = None
 
 
+# =============================================================================
+# VIDEO SUPPORT - Extract audio from video files using ffmpeg
+# =============================================================================
+
+# Supported video formats
+VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v', 
+                    '.mpeg', '.mpg', '.3gp', '.3g2', '.ts', '.mts', '.m2ts', '.vob'}
+
+# Supported audio formats
+AUDIO_EXTENSIONS = {'.mp3', '.wav', '.m4a', '.flac', '.ogg', '.wma', '.aac', '.opus',
+                    '.aiff', '.aif', '.ape', '.wv', '.mka'}
+
+def is_video_file(file_path):
+    """Check if a file is a video file based on its extension."""
+    return Path(file_path).suffix.lower() in VIDEO_EXTENSIONS
+
+def is_audio_file(file_path):
+    """Check if a file is an audio file based on its extension."""
+    return Path(file_path).suffix.lower() in AUDIO_EXTENSIONS
+
+def extract_audio_from_video(video_path, output_path=None, debug=False):
+    """
+    Extract audio from a video file using ffmpeg.
+    
+    Args:
+        video_path: Path to the video file
+        output_path: Optional output path for the extracted audio (defaults to temp file)
+        debug: Enable debug logging
+    
+    Returns:
+        tuple: (audio_path, is_temporary) - path to extracted audio and whether it's a temp file
+    """
+    import subprocess
+    import tempfile
+    
+    video_path = Path(video_path)
+    
+    if not video_path.exists():
+        raise FileNotFoundError(f"Video file not found: {video_path}")
+    
+    # Check if ffmpeg is available
+    try:
+        subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
+    except (subprocess.SubprocessError, FileNotFoundError):
+        raise RuntimeError(
+            "ffmpeg is not installed or not in PATH.\n"
+            "Please install ffmpeg:\n"
+            "  - macOS: brew install ffmpeg\n"
+            "  - Ubuntu/Debian: sudo apt install ffmpeg\n"
+            "  - Windows: Download from https://ffmpeg.org/download.html"
+        )
+    
+    # Determine output path
+    is_temporary = output_path is None
+    if is_temporary:
+        # Create temp file with .wav extension (most compatible)
+        temp_fd, output_path = tempfile.mkstemp(suffix='.wav', prefix='transcribe_ro_')
+        os.close(temp_fd)
+    
+    output_path = Path(output_path)
+    
+    if debug:
+        logger.debug(f"Extracting audio from video: {video_path}")
+        logger.debug(f"Output audio path: {output_path}")
+    
+    try:
+        # Extract audio using ffmpeg
+        # -i: input file
+        # -vn: no video
+        # -acodec pcm_s16le: 16-bit PCM audio (WAV format)
+        # -ar 16000: 16kHz sample rate (optimal for Whisper)
+        # -ac 1: mono channel
+        # -y: overwrite output file
+        cmd = [
+            'ffmpeg',
+            '-i', str(video_path),
+            '-vn',  # No video
+            '-acodec', 'pcm_s16le',  # 16-bit PCM
+            '-ar', '16000',  # 16kHz sample rate
+            '-ac', '1',  # Mono
+            '-y',  # Overwrite
+            str(output_path)
+        ]
+        
+        if debug:
+            logger.debug(f"Running: {' '.join(cmd)}")
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            error_msg = result.stderr[:500] if result.stderr else "Unknown ffmpeg error"
+            raise RuntimeError(f"ffmpeg failed: {error_msg}")
+        
+        if not output_path.exists():
+            raise RuntimeError(f"ffmpeg did not create output file: {output_path}")
+        
+        logger.info(f"✓ Audio extracted from video: {video_path.name}")
+        
+        return str(output_path), is_temporary
+        
+    except Exception as e:
+        # Clean up temp file on error
+        if is_temporary and output_path.exists():
+            try:
+                os.remove(output_path)
+            except:
+                pass
+        raise
+
+
 def check_internet_connectivity(timeout=3):
     """
     Check if internet connection is available.
@@ -518,19 +632,70 @@ def perform_speaker_diarization(audio_path, speaker_names=None, debug=False):
             logger.debug("Running diarization pipeline...")
             start_time = time.time()
         
-        # Pre-load audio using torchaudio to avoid torchcodec/AudioDecoder issues in pyannote.audio 4.x
+        # Pre-load audio using librosa/soundfile to AVOID torchcodec/AudioDecoder issues in pyannote.audio 4.x
+        # This is the FIX for the "torchcodec/AudioDecoder incompatibility" error
         # The pipeline accepts a dictionary with "waveform" and "sample_rate" keys
+        audio_input = None
         try:
-            import torchaudio
-            waveform, sample_rate = torchaudio.load(audio_path)
-            audio_input = {"waveform": waveform, "sample_rate": sample_rate}
-            if debug:
-                logger.debug(f"Audio loaded via torchaudio: {waveform.shape}, {sample_rate}Hz")
-        except Exception as audio_load_err:
-            # Fallback to direct path (older pyannote versions)
-            if debug:
-                logger.debug(f"torchaudio load failed ({audio_load_err}), using direct path")
-            audio_input = audio_path
+            # Method 1: Use librosa (most reliable, avoids torchcodec entirely)
+            try:
+                import librosa
+                import numpy as np
+                
+                # Load audio with librosa at 16kHz (pyannote preferred sample rate)
+                audio_data, sample_rate = librosa.load(audio_path, sr=16000, mono=True)
+                
+                # Convert to torch tensor with correct shape [channels, samples]
+                waveform = torch.from_numpy(audio_data).unsqueeze(0).float()
+                audio_input = {"waveform": waveform, "sample_rate": sample_rate}
+                
+                if debug:
+                    logger.debug(f"Audio loaded via librosa: {waveform.shape}, {sample_rate}Hz")
+            except ImportError:
+                if debug:
+                    logger.debug("librosa not available, trying soundfile...")
+                raise
+                
+        except Exception as librosa_err:
+            # Method 2: Use soundfile as fallback
+            try:
+                import soundfile as sf
+                import numpy as np
+                
+                audio_data, sample_rate = sf.read(audio_path)
+                
+                # Handle stereo by averaging channels
+                if len(audio_data.shape) > 1:
+                    audio_data = np.mean(audio_data, axis=1)
+                
+                # Resample to 16kHz if needed
+                if sample_rate != 16000:
+                    try:
+                        import librosa
+                        audio_data = librosa.resample(audio_data, orig_sr=sample_rate, target_sr=16000)
+                        sample_rate = 16000
+                    except ImportError:
+                        # If librosa not available for resampling, use scipy
+                        try:
+                            from scipy import signal
+                            num_samples = int(len(audio_data) * 16000 / sample_rate)
+                            audio_data = signal.resample(audio_data, num_samples)
+                            sample_rate = 16000
+                        except ImportError:
+                            if debug:
+                                logger.debug(f"Resampling not available, using original sample rate {sample_rate}Hz")
+                
+                waveform = torch.from_numpy(audio_data.astype(np.float32)).unsqueeze(0)
+                audio_input = {"waveform": waveform, "sample_rate": sample_rate}
+                
+                if debug:
+                    logger.debug(f"Audio loaded via soundfile: {waveform.shape}, {sample_rate}Hz")
+                    
+            except Exception as sf_err:
+                if debug:
+                    logger.debug(f"soundfile load failed ({sf_err}), falling back to file path")
+                # Last resort: pass file path directly (may trigger torchcodec issues)
+                audio_input = audio_path
         
         # Run diarization
         diarization = pipeline(audio_input)
@@ -764,15 +929,32 @@ def detect_device(preferred_device=None, debug=False):
         # Check MPS
         if preferred_device == 'mps':
             if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                device_info.update({
-                    'name': 'mps',
-                    'type': 'Apple Silicon GPU (MPS)',
-                    'reason': 'User selected MPS',
-                    'fp16_supported': False,  # MPS works better with FP32
-                    'note': 'Using FP32 for optimal performance on Apple Silicon',
-                    'warning': 'MPS may encounter numerical instability (NaN errors). Auto-fallback to CPU is enabled.'
-                })
-                return 'mps', device_info
+                # Validate MPS works with a test operation
+                mps_works = False
+                try:
+                    test_tensor = torch.zeros(1, device='mps')
+                    test_result = test_tensor + 1
+                    if hasattr(torch.mps, 'synchronize'):
+                        torch.mps.synchronize()
+                    if not torch.isnan(test_result).any():
+                        mps_works = True
+                except Exception as e:
+                    logger.warning(f"MPS validation failed: {e}")
+                
+                if mps_works:
+                    device_info.update({
+                        'name': 'mps',
+                        'type': 'Apple Silicon GPU (MPS)',
+                        'reason': 'User selected MPS (validated)',
+                        'fp16_supported': False,  # MPS works better with FP32
+                        'note': 'Using FP32 for optimal performance on Apple Silicon (M1/M2/M3)',
+                        'warning': 'MPS may encounter numerical instability. Auto-fallback to CPU is enabled.'
+                    })
+                    return 'mps', device_info
+                else:
+                    logger.warning("MPS requested but validation failed. Falling back to CPU.")
+                    device_info['reason'] = 'MPS validation failed, using CPU'
+                    return 'cpu', device_info
             else:
                 logger.warning("MPS requested but not available. Falling back to auto-detection.")
     
@@ -802,19 +984,52 @@ def detect_device(preferred_device=None, debug=False):
             pass
         return 'cuda', device_info
     
-    # Check MPS (Apple Silicon)
+    # Check MPS (Apple Silicon) - with validation test for M1/M2/M3 chips
     if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
         if debug:
-            logger.debug("MPS (Apple Silicon GPU) is available")
-        device_info.update({
-            'name': 'mps',
-            'type': 'Apple Silicon GPU (MPS)',
-            'reason': 'Apple Silicon GPU detected',
-            'fp16_supported': False,  # MPS works better with FP32
-            'note': 'Using FP32 for optimal performance on Apple Silicon',
-            'warning': 'MPS may encounter numerical instability (NaN errors). Auto-fallback to CPU is enabled.'
-        })
-        return 'mps', device_info
+            logger.debug("MPS (Apple Silicon GPU) reported as available, running validation test...")
+        
+        # Validate MPS actually works with a test operation
+        # This catches cases where MPS reports available but operations fail
+        mps_works = False
+        mps_error = None
+        try:
+            # Test basic tensor operations on MPS
+            test_tensor = torch.zeros(1, device='mps')
+            test_result = test_tensor + 1
+            # Sync to ensure operation completes
+            if hasattr(torch.mps, 'synchronize'):
+                torch.mps.synchronize()
+            # Verify result is correct (not NaN)
+            if not torch.isnan(test_result).any():
+                mps_works = True
+                if debug:
+                    logger.debug("MPS validation test PASSED")
+            else:
+                mps_error = "MPS returned NaN values"
+                if debug:
+                    logger.debug(f"MPS validation test FAILED: {mps_error}")
+        except Exception as e:
+            mps_error = str(e)
+            if debug:
+                logger.debug(f"MPS validation test FAILED with exception: {mps_error}")
+        
+        if mps_works:
+            device_info.update({
+                'name': 'mps',
+                'type': 'Apple Silicon GPU (MPS)',
+                'reason': 'Apple Silicon GPU detected and validated',
+                'fp16_supported': False,  # MPS works better with FP32
+                'note': 'Using FP32 for optimal performance on Apple Silicon (M1/M2/M3)',
+                'warning': 'MPS may encounter numerical instability. Auto-fallback to CPU is enabled via PYTORCH_ENABLE_MPS_FALLBACK=1'
+            })
+            return 'mps', device_info
+        else:
+            logger.warning(f"MPS available but validation failed: {mps_error}")
+            logger.warning("Falling back to CPU for stability")
+            device_info['reason'] = f'MPS validation failed ({mps_error}), using CPU'
+            device_info['mps_error'] = mps_error
+            return 'cpu', device_info
     
     # Fallback to CPU
     if debug:
@@ -1499,10 +1714,13 @@ class AudioTranscriber:
         speaker_names=None
     ):
         """
-        Process audio file: transcribe and optionally translate to Romanian.
+        Process audio/video file: transcribe and optionally translate to Romanian.
+        
+        Supports both audio files and video files. Video files will have their audio
+        extracted automatically using ffmpeg.
         
         Args:
-            audio_path: Path to audio file
+            audio_path: Path to audio or video file
             output_path: Path for output file (default: same as input with .txt extension)
             translate: Whether to translate to Romanian
             include_timestamps: Whether to include timestamps in output
@@ -1514,17 +1732,47 @@ class AudioTranscriber:
         """
         if self.debug:
             logger.debug("="*80)
-            logger.debug("STEP: PROCESS AUDIO")
+            logger.debug("STEP: PROCESS AUDIO/VIDEO")
             logger.debug("="*80)
-            logger.debug(f"Audio path: {audio_path}")
+            logger.debug(f"Input path: {audio_path}")
             logger.debug(f"Output path: {output_path}")
             logger.debug(f"Translate: {translate}")
             logger.debug(f"Include timestamps: {include_timestamps}")
             logger.debug(f"Output format: {output_format}")
         
-        # Transcribe audio
-        transcribe_start = time.time() if self.debug else None
-        result = self.transcribe_audio(audio_path)
+        # Check if input is a video file and extract audio if needed
+        temp_audio_file = None
+        original_input_path = audio_path  # Keep reference to original for output naming
+        
+        if is_video_file(audio_path):
+            logger.info(f"🎬 Video file detected: {Path(audio_path).name}")
+            logger.info("📤 Extracting audio from video...")
+            try:
+                audio_path, is_temp = extract_audio_from_video(audio_path, debug=self.debug)
+                if is_temp:
+                    temp_audio_file = audio_path  # Track temp file for cleanup
+                if self.debug:
+                    logger.debug(f"Extracted audio to: {audio_path}")
+            except RuntimeError as e:
+                logger.error(f"Failed to extract audio from video: {e}")
+                return {
+                    'error': str(e),
+                    'original_path': str(original_input_path)
+                }
+        
+        try:
+            # Transcribe audio
+            transcribe_start = time.time() if self.debug else None
+            result = self.transcribe_audio(audio_path)
+        finally:
+            # Clean up temporary audio file
+            if temp_audio_file and os.path.exists(temp_audio_file):
+                try:
+                    os.remove(temp_audio_file)
+                    if self.debug:
+                        logger.debug(f"Cleaned up temp audio file: {temp_audio_file}")
+                except Exception as cleanup_err:
+                    logger.warning(f"Failed to clean up temp file: {cleanup_err}")
         
         if self.debug:
             transcribe_time = time.time() - transcribe_start
