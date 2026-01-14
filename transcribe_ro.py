@@ -1993,7 +1993,15 @@ class AudioTranscriber:
             elapsed = time.time() - process_start_time
             return f"[{elapsed:6.1f}s]"
         
-        logger.info(f"{elapsed_str()} Starting processing: {Path(audio_path).name}")
+        def timing_print(msg):
+            """Print timing message to console (guaranteed visibility)."""
+            print(msg, flush=True)
+            logger.info(msg)
+        
+        timing_print(f"\n{'='*60}")
+        timing_print(f"⏱️  PROCESSING: {Path(audio_path).name}")
+        timing_print(f"{'='*60}")
+        timing_print(f"{elapsed_str()} 🚀 Starting processing...")
         
         if self.debug:
             logger.debug("="*80)
@@ -2010,15 +2018,15 @@ class AudioTranscriber:
         original_input_path = audio_path  # Keep reference to original for output naming
         
         if is_video_file(audio_path):
-            logger.info(f"{elapsed_str()} 🎬 Video file detected: {Path(audio_path).name}")
-            logger.info(f"{elapsed_str()} 📤 Extracting audio from video...")
+            timing_print(f"{elapsed_str()} 🎬 Video file detected")
+            timing_print(f"{elapsed_str()} 📤 Extracting audio from video...")
             extraction_start = time.time()
             try:
                 audio_path, is_temp = extract_audio_from_video(audio_path, debug=self.debug)
                 if is_temp:
                     temp_audio_file = audio_path  # Track temp file for cleanup
                 timing_data['audio_extraction'] = time.time() - extraction_start
-                logger.info(f"{elapsed_str()} ✓ Audio extracted ({timing_data['audio_extraction']:.1f}s)")
+                timing_print(f"{elapsed_str()} ✅ Audio extracted ({timing_data['audio_extraction']:.1f}s)")
                 if self.debug:
                     logger.debug(f"Extracted audio to: {audio_path}")
             except RuntimeError as e:
@@ -2030,11 +2038,11 @@ class AudioTranscriber:
         
         try:
             # Transcribe audio
-            logger.info(f"{elapsed_str()} 🎤 Starting transcription (Whisper {self.model_name})...")
+            timing_print(f"{elapsed_str()} 🎤 Starting transcription (Whisper {self.model_name})...")
             transcribe_start = time.time()
             result = self.transcribe_audio(audio_path)
             timing_data['transcription'] = time.time() - transcribe_start
-            logger.info(f"{elapsed_str()} ✓ Transcription complete ({timing_data['transcription']:.1f}s)")
+            timing_print(f"{elapsed_str()} ✅ Transcription complete ({timing_data['transcription']:.1f}s)")
         finally:
             # Clean up temporary audio file
             if temp_audio_file and os.path.exists(temp_audio_file):
@@ -2053,7 +2061,7 @@ class AudioTranscriber:
         # Perform speaker diarization if requested
         speaker_timeline = None
         if speaker_names and len(speaker_names) == 2:
-            logger.info(f"{elapsed_str()} 👥 Starting speaker diarization...")
+            timing_print(f"{elapsed_str()} 👥 Starting speaker diarization...")
             diarization_start = time.time()
             speaker_timeline = perform_speaker_diarization(
                 audio_path, 
@@ -2061,7 +2069,7 @@ class AudioTranscriber:
                 debug=self.debug
             )
             timing_data['speaker_diarization'] = time.time() - diarization_start
-            logger.info(f"{elapsed_str()} ✓ Diarization complete ({timing_data['speaker_diarization']:.1f}s)")
+            timing_print(f"{elapsed_str()} ✅ Diarization complete ({timing_data['speaker_diarization']:.1f}s)")
             
             # Add speaker labels to segments
             if speaker_timeline:
@@ -2087,8 +2095,8 @@ class AudioTranscriber:
             logger.debug(f"Total transcription length: {len(transcribed_text)} characters")
             logger.debug(f"Transcription sample (first 200 chars): {transcribed_text[:200]!r}")
         
-        logger.info(f"{elapsed_str()} ✓ Detected language: {detected_language}")
-        logger.info(f"{elapsed_str()} ✓ Transcription length: {len(transcribed_text)} characters")
+        timing_print(f"{elapsed_str()} ✅ Detected language: {detected_language}")
+        timing_print(f"{elapsed_str()} ✅ Transcription length: {len(transcribed_text)} characters")
         
         # Translate to Romanian if needed and requested
         translated_text = None
@@ -2106,14 +2114,14 @@ class AudioTranscriber:
                 logger.debug("DECISION: Translation will be attempted")
                 logger.debug(f"REASON: translate={translate} and detected_language='{detected_language}' != 'ro'")
             
-            logger.info(f"{elapsed_str()} 🌍 Starting translation to Romanian...")
+            timing_print(f"{elapsed_str()} 🌍 Starting translation to Romanian...")
             
             translate_start = time.time()
             translated_text = self.translate_to_romanian(transcribed_text, source_lang=detected_language)
             timing_data['translation'] = time.time() - translate_start
             
             if translated_text and translated_text != transcribed_text:
-                logger.info(f"{elapsed_str()} ✓ Translation complete ({timing_data['translation']:.1f}s)")
+                timing_print(f"{elapsed_str()} ✅ Translation complete ({timing_data['translation']:.1f}s)")
                 
                 if self.debug:
                     logger.debug(f"Translation changed the text: True")
@@ -2189,7 +2197,7 @@ class AudioTranscriber:
                 logger.debug(f"  {key}: {value}")
         
         # Write original transcription output
-        logger.info(f"{elapsed_str()} 📝 Writing output files...")
+        timing_print(f"{elapsed_str()} 📝 Writing output files...")
         write_start = time.time()
         
         if self.debug:
@@ -2222,7 +2230,7 @@ class AudioTranscriber:
                 logger.debug(f"File size: {os.path.getsize(output_path) / 1024:.2f} KB")
                 logger.debug(f"File exists: {output_path.exists()}")
             
-            logger.info(f"{elapsed_str()} ✓ Original transcription saved to: {output_path}")
+            timing_print(f"{elapsed_str()} ✅ Original transcription saved")
             
         except Exception as e:
             logger.error(f"Failed to write original transcription file: {e}")
@@ -2269,7 +2277,7 @@ class AudioTranscriber:
                     logger.debug(f"File size: {os.path.getsize(translated_output_path) / 1024:.2f} KB")
                     logger.debug(f"File exists: {translated_output_path.exists()}")
                 
-                logger.info(f"{elapsed_str()} ✓ Romanian translation saved to: {translated_output_path}")
+                timing_print(f"{elapsed_str()} ✅ Romanian translation saved")
                 
             except Exception as e:
                 logger.error(f"Failed to write translated file: {e}")
@@ -2282,17 +2290,17 @@ class AudioTranscriber:
         timing_data['file_writing'] = time.time() - write_start
         
         # ============================================================
-        # TIMING SUMMARY TABLE
+        # TIMING SUMMARY TABLE (Print to console for guaranteed visibility)
         # ============================================================
         total_time = time.time() - process_start_time
         
-        # Build the summary table
-        logger.info("")
-        logger.info("=" * 60)
-        logger.info("⏱️  PERFORMANCE SUMMARY")
-        logger.info("=" * 60)
-        logger.info(f"{'Step':<30} {'Time':>10} {'%':>8}")
-        logger.info("-" * 60)
+        # Build and print the summary table
+        print("", flush=True)
+        print("=" * 60, flush=True)
+        print("⏱️  PERFORMANCE SUMMARY", flush=True)
+        print("=" * 60, flush=True)
+        print(f"{'Step':<30} {'Time':>10} {'%':>8}", flush=True)
+        print("-" * 60, flush=True)
         
         # Only show steps that were actually performed (time > 0)
         steps_to_show = [
@@ -2306,12 +2314,12 @@ class AudioTranscriber:
         for step_name, step_time in steps_to_show:
             if step_time > 0:
                 percentage = (step_time / total_time) * 100 if total_time > 0 else 0
-                logger.info(f"{step_name:<30} {step_time:>8.1f}s {percentage:>7.1f}%")
+                print(f"{step_name:<30} {step_time:>8.1f}s {percentage:>7.1f}%", flush=True)
         
-        logger.info("-" * 60)
-        logger.info(f"{'TOTAL':<30} {total_time:>8.1f}s {100.0:>7.1f}%")
-        logger.info("=" * 60)
-        logger.info("")
+        print("-" * 60, flush=True)
+        print(f"{'TOTAL':<30} {total_time:>8.1f}s {100.0:>7.1f}%", flush=True)
+        print("=" * 60, flush=True)
+        print("", flush=True)
         
         return {
             'output_file': str(output_path),
