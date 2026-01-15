@@ -60,7 +60,7 @@ cd transcribe_ro
 **Windows:**
 ```cmd
 python -m venv .venv
-.venv\Scripts\activate
+.venv\Scripts\activate.bat
 ```
 
 **macOS/Linux:**
@@ -76,9 +76,10 @@ pip install -r requirements.txt
 
 ### 4. Windows Only - Fix torchcodec Incompatibility
 ```cmd
+pip install pyannote.audio
 pip uninstall torchcodec -y
+pip install hf_xet
 ```
-
 ---
 
 ## Running the Application
