@@ -1,0 +1,129 @@
+===============================================================================
+                      DEBUG MODE DEMONSTRATION
+===============================================================================
+
+COMMAND:
+  python transcribe_ro.py audio.mp3 --debug
+
+EXPECTED OUTPUT:
+
+2026-01-12 14:04:00.530 [DEBUG] ================================================================================
+2026-01-12 14:04:00.530 [DEBUG] DEBUG MODE ENABLED - Detailed output will be shown
+2026-01-12 14:04:00.530 [DEBUG] ================================================================================
+2026-01-12 14:04:00.530 [DEBUG] Model name: base
+2026-01-12 14:04:00.530 [DEBUG] Device: cpu
+2026-01-12 14:04:00.530 [DEBUG] Translator available: True
+2026-01-12 14:04:00.530 [DEBUG] Python version: 3.11.6 (main, Dec  9 2025, 11:42:39) [GCC 12.2.0]
+2026-01-12 14:04:00.530 [DEBUG] Working directory: /home/ubuntu/transcribe_ro
+
+2026-01-12 14:04:00.530 [INFO] Loading Whisper model 'base' on cpu...
+2026-01-12 14:04:00.530 [DEBUG] Starting model load at 2026-01-12T14:04:00.530801
+2026-01-12 14:04:02.024 [DEBUG] Model loaded in 1.49 seconds
+2026-01-12 14:04:02.025 [DEBUG] Model type: <class 'whisper.model.Whisper'>
+2026-01-12 14:04:02.025 [INFO] Model loaded successfully!
+
+2026-01-12 14:04:02.025 [DEBUG] ================================================================================
+2026-01-12 14:04:02.025 [DEBUG] STEP: AUDIO TRANSCRIPTION
+2026-01-12 14:04:02.025 [DEBUG] ================================================================================
+2026-01-12 14:04:02.025 [DEBUG] Audio file: audio.mp3
+2026-01-12 14:04:02.025 [DEBUG] File size: 2.45 MB
+2026-01-12 14:04:02.025 [DEBUG] Task mode: transcribe
+2026-01-12 14:04:02.025 [INFO] Transcribing: audio.mp3
+2026-01-12 14:04:02.025 [DEBUG] Transcription started at 2026-01-12T14:04:02.025484
+
+... (transcription in progress) ...
+
+2026-01-12 14:04:15.234 [DEBUG] Transcription completed in 13.21 seconds
+2026-01-12 14:04:15.234 [DEBUG] Result keys: ['language', 'text', 'segments']
+2026-01-12 14:04:15.234 [DEBUG] Number of segments: 42
+2026-01-12 14:04:15.234 [DEBUG] Text length: 1847
+
+2026-01-12 14:04:15.235 [DEBUG] ================================================================================
+2026-01-12 14:04:15.235 [DEBUG] STEP: LANGUAGE DETECTION RESULTS
+2026-01-12 14:04:15.235 [DEBUG] ================================================================================
+2026-01-12 14:04:15.235 [DEBUG] Detected language code: en
+2026-01-12 14:04:15.235 [DEBUG] Language name: English
+2026-01-12 14:04:15.235 [DEBUG] Language confidence: 0.9823
+2026-01-12 14:04:15.235 [DEBUG] Number of segments: 42
+2026-01-12 14:04:15.235 [DEBUG] Total transcription length: 1847 characters
+2026-01-12 14:04:15.235 [DEBUG] Transcription sample (first 200 chars): 'Hello everyone, welcome to this podcast. Today we will be discussing the importance of artificial intelligence and machine learning in modern society. Let\'s start with the basics...'
+
+2026-01-12 14:04:15.235 [DEBUG] ================================================================================
+2026-01-12 14:04:15.235 [DEBUG] STEP: TRANSLATION DECISION
+2026-01-12 14:04:15.235 [DEBUG] ================================================================================
+2026-01-12 14:04:15.235 [DEBUG] Translate flag: True
+2026-01-12 14:04:15.235 [DEBUG] Detected language: en
+2026-01-12 14:04:15.235 [DEBUG] Is Romanian: False
+2026-01-12 14:04:15.235 [DEBUG] DECISION: Translation will be attempted
+2026-01-12 14:04:15.235 [DEBUG] REASON: translate=True and detected_language='en' != 'ro'
+
+2026-01-12 14:04:15.235 [INFO] Starting translation to Romanian...
+
+2026-01-12 14:04:15.235 [DEBUG] ================================================================================
+2026-01-12 14:04:15.235 [DEBUG] STEP: TRANSLATION TO ROMANIAN
+2026-01-12 14:04:15.235 [DEBUG] ================================================================================
+2026-01-12 14:04:15.235 [DEBUG] Text length: 1847 characters
+2026-01-12 14:04:15.235 [DEBUG] Source language: en
+2026-01-12 14:04:15.235 [DEBUG] Max retries: 3
+2026-01-12 14:04:15.235 [DEBUG] Translator available: True
+2026-01-12 14:04:15.235 [DEBUG] Text sample (first 200 chars): 'Hello everyone, welcome to this podcast...'
+2026-01-12 14:04:15.235 [DEBUG] Text length (1847) is within limit (4500)
+2026-01-12 14:04:15.235 [DEBUG] Using single-chunk translation
+
+2026-01-12 14:04:15.235 [INFO] Translation attempt 1/3...
+2026-01-12 14:04:15.235 [DEBUG] Attempt 1 started at 2026-01-12T14:04:15.235789
+2026-01-12 14:04:15.235 [DEBUG] Source language: en
+2026-01-12 14:04:15.235 [DEBUG] Creating GoogleTranslator(source='auto', target='ro')
+2026-01-12 14:04:15.235 [DEBUG] Calling translator.translate() with 1847 chars...
+2026-01-12 14:04:16.674 [DEBUG] Translation call completed in 1.44 seconds
+2026-01-12 14:04:16.674 [DEBUG] Result type: <class 'str'>
+2026-01-12 14:04:16.674 [DEBUG] Result length: 1923
+2026-01-12 14:04:16.674 [INFO] ✓ Translation successful! (1847 -> 1923 chars)
+2026-01-12 14:04:16.674 [DEBUG] Translation sample (first 200 chars): 'Bună tuturor, bun venit la acest podcast. Astăzi vom discuta despre importanța inteligenței artificiale și a învățării automate în societatea modernă. Să începem cu elementele de bază...'
+2026-01-12 14:04:16.674 [DEBUG] Original != Translated: True
+
+2026-01-12 14:04:16.675 [INFO] ✓ Translation completed successfully!
+
+2026-01-12 14:04:16.675 [DEBUG] ================================================================================
+2026-01-12 14:04:16.675 [DEBUG] STEP: WRITE OUTPUT FILE
+2026-01-12 14:04:16.675 [DEBUG] ================================================================================
+2026-01-12 14:04:16.675 [DEBUG] Writing to: audio_transcription.txt
+2026-01-12 14:04:16.675 [DEBUG] Output path (absolute): /home/ubuntu/transcribe_ro/audio_transcription.txt
+2026-01-12 14:04:16.675 [DEBUG] Format: Text
+2026-01-12 14:04:16.695 [DEBUG] File written in 0.02 seconds
+2026-01-12 14:04:16.695 [DEBUG] File size: 4.23 KB
+2026-01-12 14:04:16.695 [DEBUG] File exists: True
+
+2026-01-12 14:04:16.695 [INFO] ✓ Output saved to: audio_transcription.txt
+
+2026-01-12 14:04:16.695 [DEBUG] ================================================================================
+2026-01-12 14:04:16.695 [DEBUG] PROCESSING SUMMARY
+2026-01-12 14:04:16.695 [DEBUG] ================================================================================
+2026-01-12 14:04:16.695 [DEBUG] Total processing time: 16.17 seconds
+2026-01-12 14:04:16.695 [DEBUG] Detected language: en
+2026-01-12 14:04:16.695 [DEBUG] Output file: audio_transcription.txt
+2026-01-12 14:04:16.695 [DEBUG] Transcription length: 1847 chars
+2026-01-12 14:04:16.695 [DEBUG] Translation length: 1923 chars
+2026-01-12 14:04:16.695 [DEBUG] Translation different from original: True
+
+===============================================================================
+PROCESSING COMPLETED SUCCESSFULLY!
+===============================================================================
+
+===============================================================================
+                         KEY DEBUG FEATURES
+===============================================================================
+
+✓ Detailed step-by-step progress with clear separators
+✓ Timestamps with millisecond precision
+✓ Language detection code AND name
+✓ Translation decision logic (why/why not)
+✓ Text samples (first 200 chars) for verification
+✓ Retry attempts with numbers (1/3, 2/3, 3/3)
+✓ Timing for each major step
+✓ File paths (relative and absolute)
+✓ File sizes and existence checks
+✓ Full exception stack traces on errors
+✓ Processing summary with total time
+
+===============================================================================
