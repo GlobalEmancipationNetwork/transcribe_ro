@@ -90,6 +90,11 @@ Make sure your virtual environment is activated, then:
 python transcribe_ro_gui.py
 ```
 
+Alternative:
+in the transcribe_ro directory run the run_gui.bat command 
+```bash
+.\run_gui.bat
+```
 ---
 
 ## Troubleshooting
@@ -105,7 +110,7 @@ Ensure you have a valid HuggingFace token configured for pyannote.audio models.
 
 ---
 
-## Updating
+## Updating if there is an update run the following:
 
 ```bash
 git pull origin main
