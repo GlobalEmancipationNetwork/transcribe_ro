@@ -23,7 +23,6 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 from pathlib import Path
 import logging
-import re
 from PIL import Image, ImageTk
 
 # Import preferences system
@@ -121,6 +120,8 @@ class TranscribeROGUI:
         self.processing = False
         self.transcriber = None
         self.current_result = None  # Store the transcription result with segments
+        self.diarization_segments = None  # Store segments with speaker info for later use
+        self.speaker_timeline = None  # Store diarization timeline
         
         # Language options
         self.languages = {
@@ -603,6 +604,17 @@ class TranscribeROGUI:
     
     def assign_speakers(self):
         """Assign speaker names to the transcription display."""
+        # Check if we have diarization data
+        if not self.diarization_segments:
+            messagebox.showwarning(
+                "Fără date de diarizare (No Diarization Data)",
+                "Nu există date de recunoaștere a vorbitorilor.\n"
+                "Vă rugăm să efectuați mai întâi o transcriere cu diarizarea activată.\n\n"
+                "(No speaker recognition data available.\n"
+                "Please perform a transcription with diarization enabled first.)"
+            )
+            return
+        
         # Build speaker assignments dictionary
         self.speaker_assignments = {}
         assigned_count = 0
@@ -615,57 +627,47 @@ class TranscribeROGUI:
                 self.speaker_assignments[f"SPEAKER_{i:02d}"] = name  # pyannote format
                 assigned_count += 1
         
-        if assigned_count == 0:
-            messagebox.showwarning(
-                "Niciun nume introdus (No Names Entered)",
-                "Vă rugăm să introduceți cel puțin un nume de vorbitor.\n"
-                "(Please enter at least one speaker name.)"
-            )
-            return
-        
         self.logger.info(f"Speaker assignments: {self.speaker_assignments}")
         
-        # Update the transcription displays if they have content
-        self._apply_speaker_assignments_to_display(self.original_text)
-        self._apply_speaker_assignments_to_display(self.translation_text)
+        # Re-format the displays with speaker labels included
+        # Use stored segments with speaker info
+        formatted_original = self._format_text_with_timestamps(
+            self.diarization_segments['original'], 
+            include_speakers=True
+        )
+        self.original_text.delete(1.0, tk.END)
+        self.original_text.insert(1.0, formatted_original)
+        
+        # If we have translated segments, update those too
+        if self.diarization_segments.get('translated'):
+            formatted_translation = self._format_text_with_timestamps(
+                self.diarization_segments['translated'],
+                include_speakers=True
+            )
+            self.translation_text.delete(1.0, tk.END)
+            self.translation_text.insert(1.0, formatted_translation)
         
         # Show confirmation
-        assigned_names = ", ".join([f"Speaker {i+1} → {self.speaker_names[i].get().strip()}" 
-                                     for i in range(self.visible_speakers) 
-                                     if self.speaker_names[i].get().strip()])
-        
-        messagebox.showinfo(
-            "Vorbitori Atribuiți (Speakers Assigned)",
-            f"Numele vorbitorilor au fost atribuite:\n{assigned_names}\n\n"
-            f"(Speaker names have been assigned:\n{assigned_names})"
-        )
-        
-        self.update_status(f"✓ {assigned_count} nume de vorbitori atribuite (speaker names assigned)", "green")
-    
-    def _apply_speaker_assignments_to_display(self, text_widget):
-        """Apply speaker name assignments to a text widget."""
-        if not self.speaker_assignments:
-            return
-        
-        # Get current content
-        content = text_widget.get(1.0, tk.END)
-        
-        if not content.strip():
-            return
-        
-        # Replace speaker labels with assigned names
-        # Format: [timestamp] Speaker 1: text  ->  [timestamp] Custom Name: text
-        modified_content = content
-        for default_label, assigned_name in self.speaker_assignments.items():
-            # Replace patterns like "Speaker 1:" or "SPEAKER_00:" at the start of speaker text
-            # The pattern looks for the label followed by colon after the timestamp bracket
-            pattern = rf'(\[\d{{2}}:\d{{2}}:\d{{2}} -> \d{{2}}:\d{{2}}:\d{{2}}\]) {re.escape(default_label)}:'
-            replacement = rf'\1 {assigned_name}:'
-            modified_content = re.sub(pattern, replacement, modified_content)
-        
-        # Update the widget
-        text_widget.delete(1.0, tk.END)
-        text_widget.insert(1.0, modified_content.rstrip())
+        if assigned_count > 0:
+            assigned_names = ", ".join([f"Speaker {i+1} → {self.speaker_names[i].get().strip()}" 
+                                         for i in range(self.visible_speakers) 
+                                         if self.speaker_names[i].get().strip()])
+            
+            messagebox.showinfo(
+                "Vorbitori Atribuiți (Speakers Assigned)",
+                f"Numele vorbitorilor au fost atribuite:\n{assigned_names}\n\n"
+                f"(Speaker names have been assigned:\n{assigned_names})"
+            )
+            self.update_status(f"✓ {assigned_count} nume de vorbitori atribuite (speaker names assigned)", "green")
+        else:
+            messagebox.showinfo(
+                "Niciun Nume de Vorbitor (No Speaker Names)",
+                "Nu ați introdus niciun nume de vorbitor.\n"
+                "Transcrierea rămâne fără etichete de vorbitor.\n\n"
+                "(You have not entered any speaker names.\n"
+                "The transcription remains without speaker labels.)"
+            )
+            self.update_status("ℹ️ Niciun nume de vorbitor introdus (No speaker names entered)", "blue")
     
     def get_speaker_names_for_diarization(self):
         """Get the list of speaker names for diarization (non-empty ones)."""
@@ -832,6 +834,10 @@ class TranscribeROGUI:
     def clear_file(self):
         """Clear selected file."""
         self.selected_file.set("")
+        # Clear stored diarization data
+        self.diarization_segments = None
+        self.speaker_timeline = None
+        self.speaker_assignments = {}
         self.update_status("Fișier șters. Gata să selectați un nou fișier. (File cleared. Ready to select new file.)", "gray")
     
     def update_status(self, message, color="black"):
@@ -850,9 +856,12 @@ class TranscribeROGUI:
             messagebox.showerror("Eroare (Error)", "Fișierul selectat nu există. (Selected file does not exist.)")
             return
         
-        # Clear previous results
+        # Clear previous results and diarization data
         self.original_text.delete(1.0, tk.END)
         self.translation_text.delete(1.0, tk.END)
+        self.diarization_segments = None
+        self.speaker_timeline = None
+        self.speaker_assignments = {}
         
         # Update UI state
         self.processing = True
@@ -992,12 +1001,15 @@ class TranscribeROGUI:
                         self.logger.info(f"✓ {diarization_status}")
                         self.root.after(0, lambda msg=f"✓ {diarization_status}": self.update_status(msg, "green"))
                         
+                        # Store the speaker timeline for later use
+                        self.speaker_timeline = speaker_timeline
+                        
                         for segment in segments:
                             segment_mid = (segment['start'] + segment['end']) / 2
                             speaker = get_speaker_for_timestamp(speaker_timeline, segment_mid)
                             segment['speaker'] = speaker if speaker else "Unknown"
                         
-                        self.logger.info(f"Speaker labels assigned to {len(segments)} segments")
+                        self.logger.info(f"Speaker labels assigned to {len(segments)} segments (stored for later display)")
                     else:
                         # Diarization failed after passing pre-checks
                         self.logger.warning(f"Speaker diarization failed: {diarization_status}")
@@ -1008,8 +1020,15 @@ class TranscribeROGUI:
                             "Transcription will continue without speaker labels."
                         ))
             
-            # Format original transcript with timestamps and speaker labels
-            formatted_transcript = self._format_text_with_timestamps(segments, speaker_timeline)
+            # Format original transcript with timestamps (NO speaker labels initially)
+            # Speaker labels will only be shown when user clicks "Assign Speakers"
+            formatted_transcript = self._format_text_with_timestamps(segments, speaker_timeline, include_speakers=False)
+            
+            # Store segments for later speaker assignment (if diarization was performed)
+            if speaker_timeline:
+                self.diarization_segments = {'original': segments, 'translated': None}
+            else:
+                self.diarization_segments = None
             
             # Display original transcript with timestamps
             self.root.after(0, lambda: self.original_text.insert(1.0, formatted_transcript))
@@ -1079,8 +1098,12 @@ class TranscribeROGUI:
                 translation_status = getattr(self.transcriber, 'translation_status', 'Unknown')
                 self.root.after(0, lambda: self.translation_status.set(translation_status))
                 
-                # Format translated segments with timestamps and speaker labels (same format as original)
-                formatted_translation = self._format_text_with_timestamps(translated_segments, speaker_timeline)
+                # Store translated segments for later speaker assignment
+                if self.diarization_segments:
+                    self.diarization_segments['translated'] = translated_segments
+                
+                # Format translated segments with timestamps (NO speaker labels initially)
+                formatted_translation = self._format_text_with_timestamps(translated_segments, speaker_timeline, include_speakers=False)
                 
                 # Display translation
                 self.root.after(0, lambda: self.translation_text.insert(1.0, formatted_translation))
@@ -1120,18 +1143,19 @@ class TranscribeROGUI:
         secs = int(seconds % 60)
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
     
-    def _format_text_with_timestamps(self, segments, speaker_timeline=None):
+    def _format_text_with_timestamps(self, segments, speaker_timeline=None, include_speakers=False):
         """
         Format text with timestamps and optional speaker labels.
         
         Args:
             segments: List of transcription segments from Whisper
-            speaker_timeline: Optional dictionary mapping time ranges to speakers
+            speaker_timeline: Optional dictionary mapping time ranges to speakers (deprecated, kept for compatibility)
+            include_speakers: Whether to include speaker labels in the output
         
         Returns:
             Formatted text string with format:
             - Without speaker: [HH:MM:SS -> HH:MM:SS] text
-            - With speaker: [HH:MM:SS -> HH:MM:SS] Speaker X: text
+            - With speaker: [HH:MM:SS -> HH:MM:SS] [speaker name] text
         """
         if not segments:
             return ""
@@ -1142,13 +1166,22 @@ class TranscribeROGUI:
             end_time = self._format_timestamp(segment['end'])
             text = segment['text'].strip()
             
-            # Add speaker label if available
+            # Only add speaker label if include_speakers is True and speaker info exists
             speaker = segment.get('speaker')
-            if speaker:
-                # Apply speaker assignment if available
-                display_speaker = self.speaker_assignments.get(speaker, speaker)
-                formatted_lines.append(f"[{start_time} -> {end_time}] {display_speaker}: {text}")
+            if include_speakers and speaker:
+                # Check if user has assigned a custom name for this speaker
+                # speaker_assignments maps "Speaker 1" or "SPEAKER_00" to custom names
+                display_speaker = self.speaker_assignments.get(speaker)
+                
+                if display_speaker:
+                    # User entered a custom name for this speaker - show it in brackets
+                    formatted_lines.append(f"[{start_time} -> {end_time}] [{display_speaker}] {text}")
+                else:
+                    # No custom name entered for this speaker - don't add speaker label
+                    # Just show timestamp and text
+                    formatted_lines.append(f"[{start_time} -> {end_time}] {text}")
             else:
+                # No speaker labels requested or no speaker info
                 formatted_lines.append(f"[{start_time} -> {end_time}] {text}")
         
         return "\n".join(formatted_lines)
