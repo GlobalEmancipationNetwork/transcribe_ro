@@ -729,7 +729,7 @@ class TranscribeROGUI:
             results_title_frame,
             textvariable=self.detected_language,
             font=("Helvetica", 10),
-            foreground="blue"
+            foreground="white"
         )
         self.detected_lang_label.grid(row=0, column=1, sticky=tk.W, padx=(10, 0))
         
