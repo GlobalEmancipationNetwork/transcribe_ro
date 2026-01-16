@@ -860,14 +860,26 @@ def perform_speaker_diarization(audio_path, speaker_names=None, debug=False):
             logger.debug(f"Unique speakers detected: {unique_speakers}")
             logger.debug(f"Number of speakers found: {num_speakers_found}")
         
-        if speaker_names and len(speaker_names) >= 2:
-            if num_speakers_found >= 2:
-                speaker_map[unique_speakers[0]] = speaker_names[0]
-                speaker_map[unique_speakers[1]] = speaker_names[1]
-                logger.info(f"Mapping speakers: {unique_speakers[0]} -> {speaker_names[0]}, {unique_speakers[1]} -> {speaker_names[1]}")
-            elif num_speakers_found == 1:
-                speaker_map[unique_speakers[0]] = speaker_names[0]
-                logger.warning(f"Only 1 speaker detected, mapping to: {speaker_names[0]}")
+        # Sort unique speakers by their first appearance time to ensure consistent numbering
+        # Speaker who appears first becomes "Speaker 1", second becomes "Speaker 2", etc.
+        speakers_by_appearance = sorted(unique_speakers, key=lambda s: speaker_first_appearance.get(s, float('inf')))
+        
+        # Always create default "Speaker 1", "Speaker 2" labels for all detected speakers
+        for idx, spk in enumerate(speakers_by_appearance):
+            default_label = f"Speaker {idx + 1}"
+            speaker_map[spk] = default_label
+            if debug:
+                logger.debug(f"Default mapping: {spk} -> {default_label}")
+        
+        # Override with custom names if provided
+        if speaker_names:
+            for idx, custom_name in enumerate(speaker_names):
+                if idx < len(speakers_by_appearance) and custom_name:
+                    original_label = speakers_by_appearance[idx]
+                    speaker_map[original_label] = custom_name
+                    logger.info(f"Custom mapping: {original_label} -> {custom_name}")
+        
+        logger.info(f"Speaker mappings: {speaker_map}")
         
         # Convert to dictionary format
         speaker_timeline = {}

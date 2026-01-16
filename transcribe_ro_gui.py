@@ -114,6 +114,9 @@ class TranscribeROGUI:
         # Speaker name assignments (maps "Speaker 1" -> assigned name)
         self.speaker_assignments = {}
         
+        # Enable diarization checkbox variable
+        self.enable_diarization = tk.BooleanVar(value=False)
+        
         self.debug_mode = tk.BooleanVar(value=False)  # Debug mode toggle
         self.processing = False
         self.transcriber = None
@@ -480,7 +483,17 @@ class TranscribeROGUI:
         speaker_frame.columnconfigure(1, weight=1)
         self.speaker_frame = speaker_frame  # Store reference for dynamic updates
         
+        # Enable diarization checkbox (row 0)
+        self.enable_diarization_checkbox = ttk.Checkbutton(
+            speaker_frame,
+            text="✓ Activează Diarizarea (Enable Speaker Diarization)",
+            variable=self.enable_diarization,
+            command=self._on_diarization_toggle
+        )
+        self.enable_diarization_checkbox.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
+        
         # Create speaker entry widgets (store references for dynamic show/hide)
+        # Start from row 1 (after the checkbox)
         self.speaker_labels = []
         self.speaker_entries = []
         
@@ -491,13 +504,13 @@ class TranscribeROGUI:
             self.speaker_labels.append(label)
             self.speaker_entries.append(entry)
             
-            # Initially show only the first 2 speakers
+            # Initially show only the first 2 speakers (offset by 1 for checkbox)
             if i < self.visible_speakers:
-                label.grid(row=i, column=0, sticky=tk.W, padx=(0, 10))
-                entry.grid(row=i, column=1, sticky=(tk.W, tk.E), pady=2)
+                label.grid(row=i+1, column=0, sticky=tk.W, padx=(0, 10))
+                entry.grid(row=i+1, column=1, sticky=(tk.W, tk.E), pady=2)
         
-        # Row index for elements below speakers
-        self.speaker_buttons_row = self.MAX_SPEAKERS
+        # Row index for elements below speakers (offset by 1 for checkbox)
+        self.speaker_buttons_row = self.MAX_SPEAKERS + 1
         
         # Add Speaker button (only show if we can add more)
         self.add_speaker_btn = ttk.Button(
@@ -556,6 +569,16 @@ class TranscribeROGUI:
         )
         self.assign_speakers_btn.grid(row=self.speaker_buttons_row + 3, column=0, columnspan=2, sticky=tk.W, pady=(10, 0))
     
+    def _on_diarization_toggle(self):
+        """Handle diarization checkbox toggle."""
+        enabled = self.enable_diarization.get()
+        if enabled:
+            self.logger.info("Speaker diarization enabled")
+            self.update_status("✓ Diarizarea vorbitorilor activată (Speaker diarization enabled)", "green")
+        else:
+            self.logger.info("Speaker diarization disabled")
+            self.update_status("Diarizarea vorbitorilor dezactivată (Speaker diarization disabled)", "gray")
+    
     def add_speaker(self):
         """Add a new speaker input field (up to MAX_SPEAKERS)."""
         if self.visible_speakers >= self.MAX_SPEAKERS:
@@ -566,10 +589,10 @@ class TranscribeROGUI:
             )
             return
         
-        # Show the next speaker field
+        # Show the next speaker field (offset by 1 for checkbox row)
         idx = self.visible_speakers
-        self.speaker_labels[idx].grid(row=idx, column=0, sticky=tk.W, padx=(0, 10))
-        self.speaker_entries[idx].grid(row=idx, column=1, sticky=(tk.W, tk.E), pady=2)
+        self.speaker_labels[idx].grid(row=idx+1, column=0, sticky=tk.W, padx=(0, 10))
+        self.speaker_entries[idx].grid(row=idx+1, column=1, sticky=(tk.W, tk.E), pady=2)
         
         self.visible_speakers += 1
         self.logger.info(f"Added speaker {self.visible_speakers}")
@@ -631,11 +654,13 @@ class TranscribeROGUI:
             return
         
         # Replace speaker labels with assigned names
+        # Format: [timestamp] Speaker 1: text  ->  [timestamp] Custom Name: text
         modified_content = content
         for default_label, assigned_name in self.speaker_assignments.items():
-            # Replace patterns like [Speaker: Speaker 1] or [Speaker: SPEAKER_00]
-            pattern = rf'\[Speaker: {re.escape(default_label)}\]'
-            replacement = f'[Speaker: {assigned_name}]'
+            # Replace patterns like "Speaker 1:" or "SPEAKER_00:" at the start of speaker text
+            # The pattern looks for the label followed by colon after the timestamp bracket
+            pattern = rf'(\[\d{{2}}:\d{{2}}:\d{{2}} -> \d{{2}}:\d{{2}}:\d{{2}}\]) {re.escape(default_label)}:'
+            replacement = rf'\1 {assigned_name}:'
             modified_content = re.sub(pattern, replacement, modified_content)
         
         # Update the widget
@@ -901,16 +926,19 @@ class TranscribeROGUI:
             # Store the result for later use
             self.current_result = result
             
-            # Perform speaker diarization if at least two speaker names are provided
+            # Perform speaker diarization if enabled via checkbox
             speaker_timeline = None
             diarization_status = None
             
-            # Get all non-empty speaker names
+            # Get all non-empty speaker names (optional - for custom labels)
             speaker_names_list = [self.speaker_names[i].get().strip() for i in range(self.visible_speakers) 
                                   if self.speaker_names[i].get().strip()]
             
-            if len(speaker_names_list) >= 2:
-                self.logger.info(f"Speaker names provided: {speaker_names_list}")
+            # Check if diarization is enabled via checkbox
+            diarization_enabled = self.enable_diarization.get()
+            
+            if diarization_enabled:
+                self.logger.info(f"Diarization enabled. Custom speaker names: {speaker_names_list if speaker_names_list else 'None (will use default labels)'}")
                 
                 # Pre-check diarization requirements before attempting
                 is_available, prereq_error = check_diarization_requirements()
@@ -932,7 +960,7 @@ class TranscribeROGUI:
                             "To enable speaker recognition:\n"
                             "1. Create a free account at huggingface.co\n"
                             "2. Get your token at: https://huggingface.co/settings/tokens\n"
-                            "3. Set environment variable: export HF_TOKEN=your_token\n"
+                            "3. Go to ⚙️ Preferences and enter your token\n"
                             "4. Restart the application\n\n"
                             "Transcription will continue without speaker labels."
                         ))
@@ -951,10 +979,11 @@ class TranscribeROGUI:
                     ))
                     self.logger.info("Starting speaker diarization...")
                     
-                    # Call diarization with first two speaker names (pyannote limitation)
+                    # Call diarization - pass custom names if provided, otherwise use defaults
+                    # The diarization function will use "Speaker 1", "Speaker 2" etc. if no names provided
                     speaker_timeline, diarization_status = perform_speaker_diarization(
                         self.selected_file.get(),
-                        speaker_names=speaker_names_list[:2],  # pyannote supports 2 speakers
+                        speaker_names=speaker_names_list if speaker_names_list else None,
                         debug=debug_enabled
                     )
                     
@@ -978,13 +1007,6 @@ class TranscribeROGUI:
                             f"Speaker recognition encountered an error:\n\n{diarization_status}\n\n"
                             "Transcription will continue without speaker labels."
                         ))
-            elif len(speaker_names_list) == 1:
-                # Only one speaker name provided
-                self.logger.info("Only one speaker name provided - need at least two for diarization")
-                self.root.after(0, lambda: self.update_status(
-                    "ℹ️ Cel puțin două nume de vorbitori sunt necesare pentru diarizare (At least two speaker names required)", 
-                    "blue"
-                ))
             
             # Format original transcript with timestamps and speaker labels
             formatted_transcript = self._format_text_with_timestamps(segments, speaker_timeline)
@@ -1107,7 +1129,9 @@ class TranscribeROGUI:
             speaker_timeline: Optional dictionary mapping time ranges to speakers
         
         Returns:
-            Formatted text string
+            Formatted text string with format:
+            - Without speaker: [HH:MM:SS -> HH:MM:SS] text
+            - With speaker: [HH:MM:SS -> HH:MM:SS] Speaker X: text
         """
         if not segments:
             return ""
@@ -1123,7 +1147,7 @@ class TranscribeROGUI:
             if speaker:
                 # Apply speaker assignment if available
                 display_speaker = self.speaker_assignments.get(speaker, speaker)
-                formatted_lines.append(f"[{start_time} -> {end_time}] [Speaker: {display_speaker}] {text}")
+                formatted_lines.append(f"[{start_time} -> {end_time}] {display_speaker}: {text}")
             else:
                 formatted_lines.append(f"[{start_time} -> {end_time}] {text}")
         
