@@ -1,0 +1,99 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "transcribe-ro"
+version = "1.0.0"
+description = "Audio Transcription and Translation Tool for Romanian"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "transcribe_ro"}
+]
+keywords = ["transcription", "whisper", "romanian", "translation", "audio", "speech-to-text"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+
+# Core dependencies (platform-independent)
+dependencies = [
+    "openai-whisper>=20231117",
+    "deep-translator>=1.11.4",
+    "transformers>=4.36.0",
+    "sentencepiece>=0.1.99",
+    "toml>=0.10.2",
+]
+
+[project.optional-dependencies]
+# GUI dependencies
+gui = [
+    "tkinter-tooltip>=2.1.0",
+]
+
+# Speaker diarization
+diarization = [
+    "pyannote.audio>=3.1.0",
+]
+
+# Development dependencies
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+# Full installation (all optional features)
+full = [
+    "transcribe-ro[gui,diarization,dev]",
+]
+
+[project.scripts]
+transcribe-ro = "transcribe_ro:main"
+transcribe-ro-gui = "transcribe_ro_gui:main"
+
+[project.urls]
+"Homepage" = "https://github.com/GlobalEmancipationNetwork/transcribe_ro"
+"Bug Tracker" = "https://github.com/GlobalEmancipationNetwork/transcribe_ro/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+# ============================================================================
+# PyTorch Installation Instructions
+# ============================================================================
+# PyTorch must be installed separately due to platform-specific wheels.
+# 
+# CUDA 12.1 (compatible with CUDA 12.0+):
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+#
+# CUDA 11.8:
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+#
+# CPU only:
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+#
+# macOS (MPS support is built-in):
+#   pip install torch torchvision torchaudio
+#
+# ============================================================================
+
+[tool.black]
+line-length = 100
+target-version = ['py39', 'py310', 'py311', 'py312']
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E501"]

@@ -1,0 +1,94 @@
+# =============================================================================
+# Transcribe RO - Configuration File
+# =============================================================================
+# This file controls runtime behavior of the transcription tool.
+# Edit values below to customize behavior for your system.
+# =============================================================================
+
+[device]
+# Device preference order for computation
+# Options: "cuda", "mps", "cpu"
+# The system will try devices in this order and use the first available one
+preference_order = ["cuda", "mps", "cpu"]
+
+# Force a specific device (overrides preference_order)
+# Set to "auto" to use preference_order, or specify: "cuda", "mps", "cpu"
+force_device = "auto"
+
+# Enable MPS fallback for operations not supported on Apple Silicon
+# Recommended: true for Apple Silicon Macs
+mps_fallback_enabled = true
+
+# MPS high watermark ratio (0.0 = no limit, helps prevent memory issues)
+mps_high_watermark_ratio = 0.0
+
+[precision]
+# Default compute precision
+# Options: "fp32" (default, most compatible), "fp16" (faster on supported GPUs), "bf16" (requires Ampere+)
+default = "fp32"
+
+# Use automatic mixed precision for faster inference on supported devices
+# Only applies when using CUDA with compatible GPUs
+auto_mixed_precision = false
+
+[whisper]
+# Default Whisper model size
+# Options: "tiny", "base", "small", "medium", "large", "large-v2", "large-v3"
+default_model = "base"
+
+# Model download directory (leave empty for default ~/.cache/whisper)
+model_cache_dir = ""
+
+# Enable verbose model loading output
+verbose_loading = false
+
+[transcription]
+# Default batch size for processing
+# Higher values = faster but more memory usage
+batch_size = 16
+
+# Enable timestamp output by default
+include_timestamps = true
+
+# Word-level timestamps (more detailed but slower)
+word_timestamps = false
+
+# Default output format
+# Options: "txt", "srt", "vtt", "json", "all"
+default_output_format = "txt"
+
+[translation]
+# Default translation mode
+# Options: "auto" (try online first, fallback to offline), "online", "offline", "none"
+mode = "auto"
+
+# Target language for translation (ISO 639-1 code)
+target_language = "ro"
+
+# Internet connectivity check timeout (seconds)
+connectivity_timeout = 3
+
+[diarization]
+# Enable speaker diarization by default
+enabled = false
+
+# Hugging Face token for accessing pyannote models
+# Get your token from: https://huggingface.co/settings/tokens
+# Leave empty to use environment variable HUGGINGFACE_TOKEN
+hf_token = ""
+
+# Maximum number of speakers to detect
+max_speakers = 4
+
+# Minimum number of speakers to detect (0 = auto)
+min_speakers = 0
+
+[logging]
+# Log level: "DEBUG", "INFO", "WARNING", "ERROR"
+level = "INFO"
+
+# Enable debug mode for detailed output
+debug = false
+
+# Log file path (leave empty to disable file logging)
+log_file = ""
