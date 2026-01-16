@@ -98,10 +98,10 @@ class TranscribeROGUI:
         self.source_language = tk.StringVar(value="ro")  # Romanian as default
         self.translation_status = tk.StringVar(value="Neînceput (Not started)")
         
-        # Speaker name variables (support up to 4 speakers)
+        # Speaker name variables (support up to 4 speakers) with default values
         self.speaker_names = []
         for i in range(self.MAX_SPEAKERS):
-            self.speaker_names.append(tk.StringVar(value=""))
+            self.speaker_names.append(tk.StringVar(value=f"Speaker {i+1}"))
         
         # For backward compatibility
         self.speaker1_name = self.speaker_names[0]
@@ -117,6 +117,8 @@ class TranscribeROGUI:
         self.enable_diarization = tk.BooleanVar(value=False)
         
         self.debug_mode = tk.BooleanVar(value=False)  # Debug mode toggle
+        self.show_translation = tk.BooleanVar(value=True)  # Toggle for translation panel
+        self.detected_language = tk.StringVar(value="")  # Store detected language for display
         self.processing = False
         self.transcriber = None
         self.current_result = None  # Store the transcription result with segments
@@ -435,92 +437,72 @@ class TranscribeROGUI:
         clear_btn.grid(row=0, column=2, padx=(10, 0))
     
     def create_language_and_speaker_section(self, parent):
-        """Create Source Language (LEFT) and Speaker Recognition (RIGHT) side by side."""
-        # Container for both sections
+        """Create Speaker Recognition section (full width, compact layout)."""
+        # Container for speaker section - full width
         container = ttk.Frame(parent)
         container.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
         container.columnconfigure(0, weight=1)
-        container.columnconfigure(1, weight=1)
         
-        # Left side: Language Selection
-        lang_frame = ttk.LabelFrame(container, text="Limbă Sursă (Source Language)", padding="10")
-        lang_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
-        lang_frame.columnconfigure(0, weight=1)
-        
-        # Add language radio buttons in a grid (no scrolling needed)
-        lang_buttons_frame = ttk.Frame(lang_frame)
-        lang_buttons_frame.grid(row=0, column=0, sticky=(tk.W, tk.E))
-        
-        row, col = 0, 0
-        max_cols = 3
-        
-        for lang_code, lang_name in self.languages.items():
-            rb = ttk.Radiobutton(
-                lang_buttons_frame,
-                text=lang_name,
-                variable=self.source_language,
-                value=lang_code
-            )
-            rb.grid(row=row, column=col, sticky=tk.W, padx=5, pady=2)
-            
-            col += 1
-            if col >= max_cols:
-                col = 0
-                row += 1
-        
-        # Info label
-        info_label = ttk.Label(
-            lang_frame,
-            text="ℹ️ Româna este selectată implicit. Dacă audio-ul este deja în română, se va afișa doar transcrierea.",
-            font=("Helvetica", 9),
-            foreground="blue",
-            wraplength=350
-        )
-        info_label.grid(row=1, column=0, sticky=tk.W, pady=(10, 0))
-        
-        # Right side: Speaker Recognition
+        # Speaker Recognition - full width, horizontal layout
         speaker_frame = ttk.LabelFrame(container, text="🎤 Recunoaștere Vorbitori (Speaker Recognition)", padding="10")
-        speaker_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
-        speaker_frame.columnconfigure(1, weight=1)
+        speaker_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=0)
+        speaker_frame.columnconfigure(0, weight=1)
         self.speaker_frame = speaker_frame  # Store reference for dynamic updates
         
-        # Enable diarization checkbox (row 0)
+        # Horizontal layout frame for all speaker controls
+        controls_frame = ttk.Frame(speaker_frame)
+        controls_frame.grid(row=0, column=0, sticky=(tk.W, tk.E))
+        
+        # Enable diarization checkbox (left side)
         self.enable_diarization_checkbox = ttk.Checkbutton(
-            speaker_frame,
+            controls_frame,
             text="✓ Activează Diarizarea (Enable Speaker Diarization)",
             variable=self.enable_diarization,
             command=self._on_diarization_toggle
         )
-        self.enable_diarization_checkbox.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
+        self.enable_diarization_checkbox.grid(row=0, column=0, sticky=tk.W, padx=(0, 20))
         
-        # Create speaker entry widgets (store references for dynamic show/hide)
-        # Start from row 1 (after the checkbox)
+        # Speaker entry widgets in horizontal layout
         self.speaker_labels = []
         self.speaker_entries = []
         
+        # Frame for speaker entries (horizontal)
+        speakers_row_frame = ttk.Frame(controls_frame)
+        speakers_row_frame.grid(row=0, column=1, sticky=tk.W)
+        
         for i in range(self.MAX_SPEAKERS):
-            label = ttk.Label(speaker_frame, text=f"Nume Vorbitor {i+1} (Speaker {i+1} Name):")
-            entry = ttk.Entry(speaker_frame, textvariable=self.speaker_names[i], width=25)
+            label = ttk.Label(speakers_row_frame, text=f"V{i+1}:")
+            entry = ttk.Entry(speakers_row_frame, textvariable=self.speaker_names[i], width=12)
             
             self.speaker_labels.append(label)
             self.speaker_entries.append(entry)
             
-            # Initially show only the first 2 speakers (offset by 1 for checkbox)
+            # Initially show only the first 2 speakers
             if i < self.visible_speakers:
-                label.grid(row=i+1, column=0, sticky=tk.W, padx=(0, 10))
-                entry.grid(row=i+1, column=1, sticky=(tk.W, tk.E), pady=2)
+                label.grid(row=0, column=i*2, sticky=tk.W, padx=(5, 2))
+                entry.grid(row=0, column=i*2+1, sticky=tk.W, padx=(0, 10))
         
-        # Row index for elements below speakers (offset by 1 for checkbox)
-        self.speaker_buttons_row = self.MAX_SPEAKERS + 1
-        
-        # Add Speaker button (only show if we can add more)
+        # Add Speaker button
         self.add_speaker_btn = ttk.Button(
-            speaker_frame,
-            text="+ Adaugă Vorbitor (Add Speaker)",
+            controls_frame,
+            text="+ Adaugă (Add)",
             command=self.add_speaker,
-            width=28
+            width=12
         )
-        self.add_speaker_btn.grid(row=self.speaker_buttons_row, column=0, columnspan=2, sticky=tk.W, pady=(5, 5))
+        self.add_speaker_btn.grid(row=0, column=2, sticky=tk.W, padx=(10, 10))
+        
+        # Assign Speakers button
+        self.assign_speakers_btn = ttk.Button(
+            controls_frame,
+            text="✓ Atribuie (Assign)",
+            command=self.assign_speakers,
+            width=14
+        )
+        self.assign_speakers_btn.grid(row=0, column=3, sticky=tk.W, padx=(0, 10))
+        
+        # Second row for status and link
+        status_row = ttk.Frame(speaker_frame)
+        status_row.grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
         
         # Check diarization availability and show appropriate status
         is_available, error_msg = check_diarization_requirements()
@@ -542,33 +524,27 @@ class TranscribeROGUI:
         
         # Status label
         self.speaker_status_label = ttk.Label(
-            speaker_frame,
+            status_row,
             text=status_text,
             font=("Helvetica", 9),
             foreground=status_color
         )
-        self.speaker_status_label.grid(row=self.speaker_buttons_row + 1, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
+        self.speaker_status_label.grid(row=0, column=0, sticky=tk.W, padx=(0, 20))
         
         # Add clickable link to preferences for HF token setup
         if PREFERENCES_AVAILABLE:
             hf_link_btn = ttk.Label(
-                speaker_frame,
+                status_row,
                 text="Configurați token în Preferințe (Configure in Preferences) →",
                 font=("Helvetica", 8, "underline"),
                 foreground="blue",
                 cursor="hand2"
             )
-            hf_link_btn.grid(row=self.speaker_buttons_row + 2, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
+            hf_link_btn.grid(row=0, column=1, sticky=tk.W)
             hf_link_btn.bind("<Button-1>", lambda e: self.open_preferences())
         
-        # Assign Speakers button - at the lower left corner of the speaker panel
-        self.assign_speakers_btn = ttk.Button(
-            speaker_frame,
-            text="✓ Atribuie Vorbitori (Assign Speakers)",
-            command=self.assign_speakers,
-            width=32
-        )
-        self.assign_speakers_btn.grid(row=self.speaker_buttons_row + 3, column=0, columnspan=2, sticky=tk.W, pady=(10, 0))
+        # Store row index for backward compatibility
+        self.speaker_buttons_row = 1
     
     def _on_diarization_toggle(self):
         """Handle diarization checkbox toggle."""
@@ -590,10 +566,10 @@ class TranscribeROGUI:
             )
             return
         
-        # Show the next speaker field (offset by 1 for checkbox row)
+        # Show the next speaker field (horizontal layout)
         idx = self.visible_speakers
-        self.speaker_labels[idx].grid(row=idx+1, column=0, sticky=tk.W, padx=(0, 10))
-        self.speaker_entries[idx].grid(row=idx+1, column=1, sticky=(tk.W, tk.E), pady=2)
+        self.speaker_labels[idx].grid(row=0, column=idx*2, sticky=tk.W, padx=(5, 2))
+        self.speaker_entries[idx].grid(row=0, column=idx*2+1, sticky=tk.W, padx=(0, 10))
         
         self.visible_speakers += 1
         self.logger.info(f"Added speaker {self.visible_speakers}")
@@ -732,39 +708,77 @@ class TranscribeROGUI:
         self.status_label.grid(row=0, column=0, sticky=tk.W)
     
     def create_results_section(self, parent):
-        """Create the results section with two side-by-side panels."""
-        results_frame = ttk.LabelFrame(parent, text="Rezultate (Results)", padding="10")
-        results_frame.grid(row=6, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 0))
+        """Create the results section with two side-by-side panels and translation toggle."""
+        # Header frame for title and controls
+        header_frame = ttk.Frame(parent)
+        header_frame.grid(row=6, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
+        header_frame.columnconfigure(1, weight=1)
         
-        # Configure grid weights for resizing - give more weight to results section
-        parent.rowconfigure(6, weight=3)  # Give results section 3x weight
-        results_frame.columnconfigure(0, weight=1)
-        results_frame.columnconfigure(1, weight=1)
-        results_frame.rowconfigure(1, weight=1)
-        
-        # Left panel - Original Transcript
-        left_frame = ttk.Frame(results_frame)
-        left_frame.grid(row=0, column=0, rowspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
-        left_frame.columnconfigure(0, weight=1)
-        left_frame.rowconfigure(1, weight=1)
+        # Results label with detected language
+        results_title_frame = ttk.Frame(header_frame)
+        results_title_frame.grid(row=0, column=0, sticky=tk.W)
         
         ttk.Label(
-            left_frame,
+            results_title_frame,
+            text="Rezultate (Results)",
+            font=("Helvetica", 12, "bold")
+        ).grid(row=0, column=0, sticky=tk.W)
+        
+        # Detected language label (will be updated after transcription)
+        self.detected_lang_label = ttk.Label(
+            results_title_frame,
+            textvariable=self.detected_language,
+            font=("Helvetica", 10),
+            foreground="blue"
+        )
+        self.detected_lang_label.grid(row=0, column=1, sticky=tk.W, padx=(10, 0))
+        
+        # Translation toggle checkbox (right side)
+        toggle_frame = ttk.Frame(header_frame)
+        toggle_frame.grid(row=0, column=1, sticky=tk.E)
+        
+        self.translation_toggle = ttk.Checkbutton(
+            toggle_frame,
+            text="📝 Afișează traducerea (Show Translation)",
+            variable=self.show_translation,
+            command=self._toggle_translation_panel
+        )
+        self.translation_toggle.grid(row=0, column=0, sticky=tk.E)
+        
+        # Results content frame
+        results_frame = ttk.LabelFrame(parent, text="", padding="10")
+        results_frame.grid(row=7, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 0))
+        self.results_frame = results_frame  # Store reference
+        
+        # Configure grid weights for resizing - give more weight to results section
+        parent.rowconfigure(7, weight=3)  # Give results section 3x weight
+        results_frame.columnconfigure(0, weight=1)
+        results_frame.columnconfigure(1, weight=1)
+        results_frame.rowconfigure(0, weight=1)
+        
+        # Left panel - Original Transcript
+        self.left_frame = ttk.Frame(results_frame)
+        self.left_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
+        self.left_frame.columnconfigure(0, weight=1)
+        self.left_frame.rowconfigure(1, weight=1)
+        
+        ttk.Label(
+            self.left_frame,
             text="Transcriere Originală (Original Transcript)",
             font=("Helvetica", 11, "bold")
         ).grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
         
         self.original_text = scrolledtext.ScrolledText(
-            left_frame,
+            self.left_frame,
             wrap=tk.WORD,
             width=40,
-            height=15,
+            height=18,
             font=("Helvetica", 10)
         )
         self.original_text.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # Left panel buttons
-        left_buttons = ttk.Frame(left_frame)
+        left_buttons = ttk.Frame(self.left_frame)
         left_buttons.grid(row=2, column=0, sticky=tk.W, pady=(5, 0))
         
         ttk.Button(
@@ -782,28 +796,28 @@ class TranscribeROGUI:
         ).grid(row=0, column=1)
         
         # Right panel - Romanian Translation
-        right_frame = ttk.Frame(results_frame)
-        right_frame.grid(row=0, column=1, rowspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
-        right_frame.columnconfigure(0, weight=1)
-        right_frame.rowconfigure(1, weight=1)
+        self.right_frame = ttk.Frame(results_frame)
+        self.right_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
+        self.right_frame.columnconfigure(0, weight=1)
+        self.right_frame.rowconfigure(1, weight=1)
         
         ttk.Label(
-            right_frame,
+            self.right_frame,
             text="Traducere în Română (Romanian Translation)",
             font=("Helvetica", 11, "bold")
         ).grid(row=0, column=0, sticky=tk.W, pady=(0, 5))
         
         self.translation_text = scrolledtext.ScrolledText(
-            right_frame,
+            self.right_frame,
             wrap=tk.WORD,
             width=40,
-            height=15,
+            height=18,
             font=("Helvetica", 10)
         )
         self.translation_text.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # Right panel buttons
-        right_buttons = ttk.Frame(right_frame)
+        right_buttons = ttk.Frame(self.right_frame)
         right_buttons.grid(row=2, column=0, sticky=tk.W, pady=(5, 0))
         
         ttk.Button(
@@ -819,6 +833,17 @@ class TranscribeROGUI:
             command=lambda: self.save_text(self.translation_text, "translation"),
             width=18
         ).grid(row=0, column=1)
+    
+    def _toggle_translation_panel(self):
+        """Toggle visibility of the translation panel."""
+        if self.show_translation.get():
+            # Show translation panel
+            self.right_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
+            self.results_frame.columnconfigure(1, weight=1)
+        else:
+            # Hide translation panel
+            self.right_frame.grid_forget()
+            self.results_frame.columnconfigure(1, weight=0)
     
     def browse_file(self):
         """Open file browser to select audio file."""
@@ -893,13 +918,15 @@ class TranscribeROGUI:
             device_type = "auto"
             force_cpu = False
             translation_mode = "auto"
+            source_language = "auto"
             
             if self.settings_manager:
                 model_size = self.settings_manager.get("transcription", "default_model_size", "base")
                 device_type = self.settings_manager.get("transcription", "default_device", "auto")
                 force_cpu = self.settings_manager.get("transcription", "force_cpu", False)
                 translation_mode = self.settings_manager.get("transcription", "default_translation_mode", "auto")
-                self.logger.info(f"Loaded settings from preferences: model={model_size}, device={device_type}, force_cpu={force_cpu}, translation={translation_mode}")
+                source_language = self.settings_manager.get("transcription", "default_source_language", "auto")
+                self.logger.info(f"Loaded settings from preferences: model={model_size}, device={device_type}, force_cpu={force_cpu}, translation={translation_mode}, source_lang={source_language}")
             
             # Handle force CPU option
             device_to_use = 'cpu' if force_cpu else device_type
@@ -931,6 +958,10 @@ class TranscribeROGUI:
             detected_language = result.get('language', 'unknown')
             transcribed_text = result.get('text', '').strip()
             segments = result.get('segments', [])
+            
+            # Update detected language display in GUI
+            lang_name = self.languages.get(detected_language, detected_language.upper())
+            self.root.after(0, lambda ln=lang_name: self.detected_language.set(f"— Detectat (Detected): {ln}"))
             
             # Store the result for later use
             self.current_result = result

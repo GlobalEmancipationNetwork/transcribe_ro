@@ -50,6 +50,7 @@ class SettingsManager:
             "default_model_size": "base",
             "default_device": "auto",
             "default_translation_mode": "auto",
+            "default_source_language": "auto",  # Default source language (auto = auto-detect)
             "force_cpu": False,  # Force CPU to bypass GPU issues
         },
         "ui": {
@@ -229,7 +230,28 @@ class PreferencesDialog:
         self.default_model_var = tk.StringVar()
         self.default_device_var = tk.StringVar()
         self.default_translation_var = tk.StringVar()
+        self.default_source_lang_var = tk.StringVar()
         self.force_cpu_var = tk.BooleanVar()
+        
+        # Language options for source language dropdown
+        self.language_options = {
+            "auto": "Auto-detect",
+            "ro": "Română (Romanian)",
+            "en": "English",
+            "es": "Spanish (Español)",
+            "fr": "French (Français)",
+            "de": "German (Deutsch)",
+            "it": "Italian (Italiano)",
+            "pt": "Portuguese (Português)",
+            "ru": "Russian (Русский)",
+            "zh": "Chinese (中文)",
+            "ja": "Japanese (日本語)",
+            "ar": "Arabic (العربية)",
+            "hi": "Hindi (हिन्दी)",
+            "nl": "Dutch (Nederlands)",
+            "pl": "Polish (Polski)",
+            "tr": "Turkish (Türkçe)"
+        }
         
         # Create and show the dialog
         self._create_dialog()
@@ -395,6 +417,18 @@ class PreferencesDialog:
                                           text="🎛️ Setări Implicite / Default Settings", padding="10")
         settings_section.pack(fill=tk.X, pady=(0, 15))
         
+        # Source Language
+        row0 = ttk.Frame(settings_section)
+        row0.pack(fill=tk.X, pady=5)
+        ttk.Label(row0, text="Limbă Sursă (Source Language):", width=30).pack(side=tk.LEFT)
+        lang_values = list(self.language_options.values())
+        self.lang_combo = ttk.Combobox(row0, textvariable=self.default_source_lang_var,
+                                       values=lang_values,
+                                       state="readonly", width=20)
+        self.lang_combo.pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Label(row0, text="(Auto = detectează automat)", font=("Helvetica", 8),
+                  foreground="gray").pack(side=tk.LEFT)
+        
         # Model size
         row1 = ttk.Frame(settings_section)
         row1.pack(fill=tk.X, pady=5)
@@ -486,6 +520,11 @@ class PreferencesDialog:
         self.default_device_var.set(self.settings_manager.get("transcription", "default_device", "auto"))
         self.default_translation_var.set(self.settings_manager.get("transcription", "default_translation_mode", "auto"))
         self.force_cpu_var.set(self.settings_manager.get("transcription", "force_cpu", False))
+        
+        # Source language - convert code to display name
+        source_lang_code = self.settings_manager.get("transcription", "default_source_language", "auto")
+        source_lang_name = self.language_options.get(source_lang_code, "Auto-detect")
+        self.default_source_lang_var.set(source_lang_name)
         
         # Update token status display
         self._update_token_status()
@@ -685,12 +724,21 @@ class PreferencesDialog:
                             "   Token doesn't seem to have the correct format (hf_...).\n"
                             "   Va fi salvat oricum / Will be saved anyway.")
         
+        # Convert source language display name back to code
+        source_lang_name = self.default_source_lang_var.get()
+        source_lang_code = "auto"
+        for code, name in self.language_options.items():
+            if name == source_lang_name:
+                source_lang_code = code
+                break
+        
         # Save all settings
         self.settings_manager.set("general", "hf_token", token)
         self.settings_manager.set("general", "auto_load_token", self.auto_load_token_var.get())
         self.settings_manager.set("transcription", "default_model_size", self.default_model_var.get())
         self.settings_manager.set("transcription", "default_device", self.default_device_var.get())
         self.settings_manager.set("transcription", "default_translation_mode", self.default_translation_var.get())
+        self.settings_manager.set("transcription", "default_source_language", source_lang_code)
         self.settings_manager.set("transcription", "force_cpu", self.force_cpu_var.get())
         
         # Save to file
