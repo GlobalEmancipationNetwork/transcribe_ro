@@ -178,6 +178,14 @@ class TranscribeROGUI:
         
         self.logger.info("Loading settings from config file...")
         
+        # Load debug mode setting and apply it to logging configuration
+        debug_enabled = self.settings_manager.get("general", "debug_mode", False)
+        if debug_enabled:
+            # Reinitialize logging with debug enabled
+            setup_logging(debug=True)
+            self.logger = logging.getLogger(__name__)
+            self.logger.info("Debug mode ENABLED from saved preferences")
+        
         # Check if there's a saved HF token
         saved_token = self.settings_manager.get_hf_token()
         
@@ -273,6 +281,13 @@ class TranscribeROGUI:
         if os.environ.get('HF_TOKEN'):
             self.hf_token_loaded_from_settings = True
             self.logger.info("Settings saved - HF_TOKEN is available in environment")
+        
+        # Apply debug mode setting
+        if self.settings_manager:
+            debug_enabled = self.settings_manager.get("general", "debug_mode", False)
+            self.debug_mode.set(debug_enabled)
+            self.toggle_debug_mode()  # This will reinitialize logging
+        
         # Update speaker recognition status
         self._update_speaker_status()
     
@@ -382,18 +397,9 @@ class TranscribeROGUI:
         )
         subtitle_label.grid(row=1, column=col, sticky=tk.W)
         
-        # Right side: Debug checkbox and Settings button
+        # Right side: Settings button
         right_controls = ttk.Frame(header_frame)
         right_controls.grid(row=0, column=1, sticky=tk.E)
-        
-        # Debug mode checkbox
-        debug_check = ttk.Checkbutton(
-            right_controls,
-            text="🐛 Debug Mode",
-            variable=self.debug_mode,
-            command=self.toggle_debug_mode
-        )
-        debug_check.grid(row=0, column=0, padx=(0, 10))
         
         if PREFERENCES_AVAILABLE:
             settings_btn = ttk.Button(
@@ -402,7 +408,7 @@ class TranscribeROGUI:
                 command=self.open_preferences,
                 width=22
             )
-            settings_btn.grid(row=0, column=1, sticky=tk.E)
+            settings_btn.grid(row=0, column=0, sticky=tk.E)
     
     def create_file_selection(self, parent):
         """Create the file selection section."""

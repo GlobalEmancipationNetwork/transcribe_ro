@@ -45,6 +45,7 @@ class SettingsManager:
         "general": {
             "hf_token": "",  # HuggingFace token for speaker diarization
             "auto_load_token": True,  # Automatically set HF_TOKEN env var on startup
+            "debug_mode": False,  # Debug mode for verbose logging
         },
         "transcription": {
             "default_model_size": "base",
@@ -227,6 +228,7 @@ class PreferencesDialog:
         # Variables for form fields
         self.hf_token_var = tk.StringVar()
         self.auto_load_token_var = tk.BooleanVar()
+        self.debug_mode_var = tk.BooleanVar()
         self.default_model_var = tk.StringVar()
         self.default_device_var = tk.StringVar()
         self.default_translation_var = tk.StringVar()
@@ -372,6 +374,18 @@ class PreferencesDialog:
         # Update token status
         self._update_token_status()
         
+        # Debug Mode Section
+        debug_section = ttk.LabelFrame(general_frame, text="🐛 Mod Debug / Debug Mode", padding="10")
+        debug_section.pack(fill=tk.X, pady=(15, 0))
+        
+        debug_info = ("Activați modul debug pentru jurnalizare detaliată.\n"
+                     "Enable debug mode for verbose logging.")
+        ttk.Label(debug_section, text=debug_info, font=("Helvetica", 9),
+                  foreground="gray").pack(anchor=tk.W, pady=(0, 10))
+        
+        ttk.Checkbutton(debug_section, text="🐛 Activează Mod Debug (Enable Debug Mode)",
+                        variable=self.debug_mode_var).pack(anchor=tk.W)
+        
         # Instructions section
         instructions_section = ttk.LabelFrame(general_frame, text="📋 Instrucțiuni / Instructions", padding="10")
         instructions_section.pack(fill=tk.X)
@@ -514,6 +528,7 @@ class PreferencesDialog:
         # General tab
         self.hf_token_var.set(self.settings_manager.get("general", "hf_token", ""))
         self.auto_load_token_var.set(self.settings_manager.get("general", "auto_load_token", True))
+        self.debug_mode_var.set(self.settings_manager.get("general", "debug_mode", False))
         
         # Defaults tab
         self.default_model_var.set(self.settings_manager.get("transcription", "default_model_size", "base"))
@@ -735,6 +750,7 @@ class PreferencesDialog:
         # Save all settings
         self.settings_manager.set("general", "hf_token", token)
         self.settings_manager.set("general", "auto_load_token", self.auto_load_token_var.get())
+        self.settings_manager.set("general", "debug_mode", self.debug_mode_var.get())
         self.settings_manager.set("transcription", "default_model_size", self.default_model_var.get())
         self.settings_manager.set("transcription", "default_device", self.default_device_var.get())
         self.settings_manager.set("transcription", "default_translation_mode", self.default_translation_var.get())
